@@ -1,0 +1,17 @@
+command:
+  - "node"
+  - "backend/server.js"
+
+env:
+  - name: NODE_ENV
+    value: production
+  - name: ADMIN_EMAILS
+    value: "ryan.cicak@databricks.com"
+  - name: LAKEBASE_HOST
+    value: "instance-925a8a43-ac2f-4d37-aec5-0e8ac03c4e5b.database.cloud.databricks.com"
+  - name: LAKEBASE_DATABASE
+    value: "databricks_postgres"
+  - name: LAKEBASE_INSTANCE
+    value: "genieiq-db"
+  - name: DATABRICKS_USER
+    value: "ryan.cicak@databricks.com"

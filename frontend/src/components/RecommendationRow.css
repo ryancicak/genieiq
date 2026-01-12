@@ -1,0 +1,55 @@
+.recommendation-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.recommendation-row:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-subtle);
+}
+
+.recommendation-points {
+  font-family: var(--font-display);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.recommendation-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.recommendation-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.recommendation-desc {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.recommendation-arrow {
+  color: var(--text-muted);
+  font-size: 1rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.recommendation-row:hover .recommendation-arrow {
+  opacity: 1;
+}
+

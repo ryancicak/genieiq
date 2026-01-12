@@ -1,0 +1,120 @@
+.header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  z-index: 100;
+
+  /* more “finished” header surface */
+  background: linear-gradient(
+    180deg,
+    rgba(10, 10, 15, 0.96) 0%,
+    rgba(10, 10, 15, 0.78) 100%
+  );
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(39, 39, 42, 0.85);
+}
+
+/* Layout: ensure content clears the fixed header */
+:root {
+  --header-height: 64px;
+}
+
+.main {
+  padding-top: calc(var(--header-height) + var(--space-lg));
+}
+
+.header-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 var(--space-lg);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo-section {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.logo {
+  font-family: var(--font-display);
+  font-size: 1.4rem; /* slightly tighter */
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.logo:hover {
+  color: var(--accent);
+}
+
+.logo-divider {
+  width: 1px;
+  height: 16px;
+  background-color: rgba(39, 39, 42, 0.9);
+  transform: translateY(-1px);
+}
+
+.logo-slogan {
+  font-family: var(--font-body); /* fix: var(--font-sans) doesn’t exist */
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  opacity: 0.95;
+  white-space: nowrap;
+  transform: translateY(-1px);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.storage-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border: 1px solid rgba(39, 39, 42, 0.9);
+  background: rgba(18, 18, 26, 0.35);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.storage-pill.ok {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.08);
+  color: rgba(187, 247, 208, 0.95);
+}
+
+.storage-pill.warn {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.08);
+  color: rgba(253, 230, 138, 0.95);
+}
+
+.user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}

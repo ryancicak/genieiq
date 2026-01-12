@@ -1,0 +1,93 @@
+.space-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px; /* tighter cadence */
+  text-decoration: none;
+  cursor: pointer;
+  position: relative;
+}
+
+.space-card-star {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(39, 39, 42, 0.85);
+  background: rgba(18, 18, 26, 0.35);
+  color: rgba(161, 161, 170, 0.95);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.space-card-star:hover {
+  color: rgba(250, 204, 21, 0.95);
+  border-color: rgba(250, 204, 21, 0.35);
+}
+
+.space-card-star.is-starred {
+  color: rgba(250, 204, 21, 0.95);
+  border-color: rgba(250, 204, 21, 0.35);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.08) inset;
+}
+
+.space-card-star:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.space-card-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.space-card-name {
+  font-size: 1.05rem;
+  font-weight: 520;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 10px;
+}
+
+.space-card-name-text {
+  /* keep layout calm with long names */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.space-card-new {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  background: rgba(34, 211, 238, 0.10);
+  color: rgba(34, 211, 238, 0.95);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.space-card-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: auto; /* anchors meta to bottom for consistent rhythm */
+}
+

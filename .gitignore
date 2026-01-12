@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Local deploy/backup artifacts (kept locally, not meant to be committed)
+.tmp/
+backups/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build output
+frontend/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+

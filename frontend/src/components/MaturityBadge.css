@@ -1,0 +1,31 @@
+.maturity-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 500;
+  width: fit-content;
+}
+
+.maturity-badge--success {
+  background: var(--success-dim);
+  color: var(--success);
+}
+
+.maturity-badge--accent {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.maturity-badge--warning {
+  background: var(--warning-dim);
+  color: var(--warning);
+}
+
+.maturity-badge--critical {
+  background: var(--critical-dim);
+  color: var(--critical);
+}
+
