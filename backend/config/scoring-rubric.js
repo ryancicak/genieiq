@@ -15,9 +15,15 @@ const RUBRIC = {
           const wh = space.warehouse;
           if (!wh) return false;
 
-          const isServerless = wh?.enable_serverless_compute === true;
-          const isPro = wh?.warehouse_type === 'PRO';
-          if (!isServerless || !isPro) return false;
+          // In the Databricks UI, users typically choose either "Pro" or "Serverless".
+          // Depending on API version/workspace, serverless can appear as:
+          // - warehouse_type === 'SERVERLESS', or
+          // - enable_serverless_compute === true on a PRO warehouse
+          const warehouseType = String(wh?.warehouse_type || '').toUpperCase();
+          const isServerless =
+            warehouseType === 'SERVERLESS' ||
+            wh?.enable_serverless_compute === true;
+          if (!isServerless) return false;
 
           // Autoscaling headroom:
           // - A very small max cluster cap can cause queueing under load.
@@ -36,7 +42,7 @@ const RUBRIC = {
 
           return true;
         },
-        recommendation: 'Use a PRO serverless warehouse with autoscaling headroom (for example: max clusters 5+ and max > min) to avoid queueing under load.'
+        recommendation: 'Use a serverless warehouse with autoscaling headroom (for example: max clusters 5+ and max > min) to avoid queueing under load.'
       },
       {
         id: 'has_instructions',
