@@ -26,18 +26,13 @@ function computeStats(points) {
   return { current, previous, delta, deltaPct, peak, low, avg };
 }
 
-function reduceToDaily(pointsDesc) {
-  // pointsDesc is newest->oldest. Keep latest scan per day.
-  const byDay = new Map();
-  for (const p of pointsDesc) {
-    const day = p.scan_date || (p.scanned_at ? String(p.scanned_at).slice(0, 10) : null);
-    if (!day) continue;
-    if (!byDay.has(day)) byDay.set(day, p);
-  }
-  // Return oldest->newest for plotting left-to-right
-  return Array.from(byDay.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([, p]) => p);
+function reduceToScans(pointsDesc) {
+  // pointsDesc is newest->oldest. Return oldest->newest for plotting left-to-right.
+  const pts = (Array.isArray(pointsDesc) ? pointsDesc : [])
+    .filter((p) => p && p.scanned_at)
+    .slice()
+    .sort((a, b) => Date.parse(a.scanned_at) - Date.parse(b.scanned_at));
+  return pts;
 }
 
 function buildAreaPath(values, w, h, padding = 10) {
@@ -84,8 +79,8 @@ export default function ScoreHistoryModal({
   }, [open, onClose]);
 
   const stats = useMemo(() => computeStats(points), [points]);
-  const daily = useMemo(() => reduceToDaily(points), [points]);
-  const chart = useMemo(() => buildAreaPath(daily.map((p) => p.total_score), 980, 300, 18), [daily]);
+  const scans = useMemo(() => reduceToScans(points), [points]);
+  const chart = useMemo(() => buildAreaPath(scans.map((p) => p.total_score), 980, 300, 18), [scans]);
 
   if (!open) return null;
 
@@ -147,8 +142,8 @@ export default function ScoreHistoryModal({
 
           <div className="shm-chart card">
             <div className="shm-chart-head">
-              <div className="shm-chart-title">30-Day Trend</div>
-              <div className="shm-chart-sub">Daily score progression</div>
+              <div className="shm-chart-title">Last scans (30 days)</div>
+              <div className="shm-chart-sub">Score changes across scans</div>
             </div>
 
             <div className="shm-chart-wrap" aria-label="Score trend chart">
@@ -180,14 +175,14 @@ export default function ScoreHistoryModal({
               </svg>
 
               <div className="shm-xlabels">
-                {daily.length > 1 ? (
+                {scans.length > 1 ? (
                   <>
-                    <span>{fmtDateLabel(daily[0]?.scanned_at)}</span>
-                    <span>{fmtDateLabel(daily[Math.floor(daily.length / 2)]?.scanned_at)}</span>
-                    <span>{fmtDateLabel(daily[daily.length - 1]?.scanned_at)}</span>
+                    <span>{fmtDateLabel(scans[0]?.scanned_at)}</span>
+                    <span>{fmtDateLabel(scans[Math.floor(scans.length / 2)]?.scanned_at)}</span>
+                    <span>{fmtDateLabel(scans[scans.length - 1]?.scanned_at)}</span>
                   </>
                 ) : (
-                  <span>{daily[0]?.scanned_at ? fmtDateLabel(daily[0]?.scanned_at) : ''}</span>
+                  <span>{scans[0]?.scanned_at ? fmtDateLabel(scans[0]?.scanned_at) : ''}</span>
                 )}
               </div>
             </div>
