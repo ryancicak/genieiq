@@ -136,6 +136,7 @@ GenieIQ scores are based on Genie space best practices:
 │  ├── Genie Spaces API                            │
 │  ├── SQL Warehouses API                          │
 │  ├── Unity Catalog API                           │
+│  ├── Databricks Assistant (agent in fix notebooks)│
 │  └── Lakebase Provisioned (PostgreSQL storage)   │
 └─────────────────────────────────────────────────┘
 ```
