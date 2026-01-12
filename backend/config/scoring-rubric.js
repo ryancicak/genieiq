@@ -10,7 +10,7 @@ const RUBRIC = {
       {
         id: 'dedicated_warehouse',
         name: 'Serverless Warehouse with Headroom',
-        points: 15,
+        points: 10,
         check: (space) => {
           const wh = space.warehouse;
           if (!wh) return false;
@@ -43,6 +43,36 @@ const RUBRIC = {
           return true;
         },
         recommendation: 'Use a serverless warehouse with autoscaling headroom (for example: max clusters 5+ and max > min) to avoid queueing under load.'
+      },
+      {
+        id: 'warehouse_size_latency',
+        name: 'Warehouse Size for Interactive Latency',
+        points: 5,
+        check: (space) => {
+          const wh = space.warehouse;
+          if (!wh) return false;
+
+          const sizeRaw = String(wh?.cluster_size || '').trim().toLowerCase();
+          const max = Number(wh?.max_num_clusters);
+
+          // If max clusters is high, smaller sizes can still perform well via parallelism.
+          if (Number.isFinite(max) && max >= 10) return true;
+
+          // Conservative: treat very small tiers as risky for interactive p95 latency.
+          // Common strings include: "X-Small", "XSMALL", "2X-Small", etc.
+          if (!sizeRaw) return false;
+          const normalized = sizeRaw.replace(/\s+/g, '');
+          const isVerySmall =
+            normalized.includes('x-small') ||
+            normalized.includes('xsmall') ||
+            normalized.includes('2x-small') ||
+            normalized.includes('2xsmall') ||
+            normalized.includes('xxsmall') ||
+            normalized.includes('2x') && normalized.includes('small');
+
+          return !isVerySmall;
+        },
+        recommendation: 'Consider a larger serverless warehouse size (for example: Small or Medium) for better interactive latency, especially for shared or high-use spaces.'
       },
       {
         id: 'has_instructions',
