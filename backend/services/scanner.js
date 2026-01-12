@@ -798,7 +798,11 @@ function normalizeSpaceData(space, warehouse) {
       name: warehouse.name,
       warehouse_type: warehouse.warehouse_type,
       enable_serverless_compute: warehouse.enable_serverless_compute,
-      cluster_size: warehouse.cluster_size
+      cluster_size: warehouse.cluster_size,
+      min_num_clusters: warehouse.min_num_clusters,
+      max_num_clusters: warehouse.max_num_clusters,
+      // Some API variants include current cluster count under one of these names.
+      num_clusters: warehouse.num_clusters ?? warehouse.cluster_count ?? null
     } : null,
     // Prefer Genie Settings → Sample questions when available; otherwise fall back.
     sampleQuestions: genieSampleQuestions.length

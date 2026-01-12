@@ -9,7 +9,7 @@ const RUBRIC = {
     criteria: [
       {
         id: 'dedicated_warehouse',
-        name: 'Dedicated Warehouse (Serverless)',
+        name: 'Serverless Warehouse with Headroom',
         points: 15,
         check: (space) => {
           const wh = space.warehouse;
@@ -19,16 +19,24 @@ const RUBRIC = {
           const isPro = wh?.warehouse_type === 'PRO';
           if (!isServerless || !isPro) return false;
 
-          // Heuristic: many workspaces have a default/shared serverless warehouse such as:
-          // "Shared Unity Catalog Serverless". This is serverless+PRO but not dedicated to a space.
-          const name = String(wh?.name || '').trim().toLowerCase();
-          if (!name) return true; // no name to classify; accept serverless+PRO
-          if (name.includes('shared')) return false;
-          if (name.includes('unity catalog serverless')) return false;
+          // Autoscaling headroom:
+          // - A very small max cluster cap can cause queueing under load.
+          // - If min == max, there is no autoscaling headroom (fixed-size).
+          const max = Number(wh?.max_num_clusters);
+          const min = wh?.min_num_clusters == null ? null : Number(wh?.min_num_clusters);
+
+          // If we can't read max clusters, treat as not passing (we cannot validate headroom).
+          if (!Number.isFinite(max)) return false;
+
+          // Keep this simple and conservative:
+          // - max >= 5 provides reasonable burst capacity for typical shared workloads
+          // - max must be greater than min if min is present (ensures actual autoscaling headroom)
+          if (max < 5) return false;
+          if (Number.isFinite(min) && max <= min) return false;
 
           return true;
         },
-        recommendation: 'Use a dedicated serverless warehouse (avoid shared/default warehouses) for consistent response times.'
+        recommendation: 'Use a PRO serverless warehouse with autoscaling headroom (for example: max clusters 5+ and max > min) to avoid queueing under load.'
       },
       {
         id: 'has_instructions',
