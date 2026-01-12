@@ -15,10 +15,10 @@ const RUBRIC = {
           const wh = space.warehouse;
           if (!wh) return false;
 
-          // In the Databricks UI, users typically choose either "Pro" or "Serverless".
+          // In the Databricks UI, users typically choose "Serverless" for best interactive latency.
           // Depending on API version/workspace, serverless can appear as:
           // - warehouse_type === 'SERVERLESS', or
-          // - enable_serverless_compute === true on a PRO warehouse
+          // - enable_serverless_compute === true
           const warehouseType = String(wh?.warehouse_type || '').toUpperCase();
           const isServerless =
             warehouseType === 'SERVERLESS' ||
