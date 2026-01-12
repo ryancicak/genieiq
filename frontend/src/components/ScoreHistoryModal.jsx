@@ -174,12 +174,9 @@ export default function ScoreHistoryModal({
               <div className="shm-chart-sub">Score changes across scans</div>
             </div>
 
-            <div
-              className="shm-chart-wrap"
-              aria-label="Score trend chart"
-              onMouseLeave={() => setHoveredIdx(null)}
-            >
-              <svg viewBox="0 0 980 300" className="shm-svg" preserveAspectRatio="none">
+            <div className="shm-chart-stage" aria-label="Score trend chart" onMouseLeave={() => setHoveredIdx(null)}>
+              <div className="shm-chart-surface">
+                <svg viewBox="0 0 980 300" className="shm-svg" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="shmFill" x1="0" x2="0" y1="0" y2="1">
                     <stop offset="0%" stopColor="rgba(34, 211, 238, 0.28)" />
@@ -219,7 +216,8 @@ export default function ScoreHistoryModal({
                     ))}
                   </>
                 ) : null}
-              </svg>
+                </svg>
+              </div>
 
               {!loading && hovered && hoveredPos && (
                 <div

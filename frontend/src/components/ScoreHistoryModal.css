@@ -142,7 +142,12 @@
   font-size: 0.9rem;
 }
 
-.shm-chart-wrap {
+.shm-chart-stage {
+  position: relative;
+  overflow: visible;
+}
+
+.shm-chart-surface {
   position: relative;
   border-radius: 14px;
   border: 1px solid rgba(39, 39, 42, 0.7);
