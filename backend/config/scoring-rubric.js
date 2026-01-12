@@ -9,13 +9,26 @@ const RUBRIC = {
     criteria: [
       {
         id: 'dedicated_warehouse',
-        name: 'Dedicated Serverless Warehouse',
+        name: 'Dedicated Warehouse (Serverless)',
         points: 15,
         check: (space) => {
           const wh = space.warehouse;
-          return wh?.warehouse_type === 'PRO' && wh?.enable_serverless_compute === true;
+          if (!wh) return false;
+
+          const isServerless = wh?.enable_serverless_compute === true;
+          const isPro = wh?.warehouse_type === 'PRO';
+          if (!isServerless || !isPro) return false;
+
+          // Heuristic: many workspaces have a default/shared serverless warehouse such as:
+          // "Shared Unity Catalog Serverless". This is serverless+PRO but not dedicated to a space.
+          const name = String(wh?.name || '').trim().toLowerCase();
+          if (!name) return true; // no name to classify; accept serverless+PRO
+          if (name.includes('shared')) return false;
+          if (name.includes('unity catalog serverless')) return false;
+
+          return true;
         },
-        recommendation: 'Switch to a dedicated serverless warehouse for consistent response times.'
+        recommendation: 'Use a dedicated serverless warehouse (avoid shared/default warehouses) for consistent response times.'
       },
       {
         id: 'has_instructions',
