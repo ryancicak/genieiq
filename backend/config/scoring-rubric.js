@@ -46,7 +46,7 @@ const RUBRIC = {
       },
       {
         id: 'warehouse_size_latency',
-        name: 'Warehouse Size for Interactive Latency',
+        name: 'Warehouse Sizing for Interactive Workloads',
         points: 5,
         check: (space) => {
           const wh = space.warehouse;
