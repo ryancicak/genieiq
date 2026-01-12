@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './ScoreHistoryModal.css';
 
 function clamp(n, min, max) {
@@ -9,6 +9,20 @@ function fmtDateLabel(iso) {
   try {
     const d = new Date(iso);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
+function fmtDateTime(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   } catch {
     return '';
   }
@@ -69,6 +83,8 @@ export default function ScoreHistoryModal({
   error = null,
   onClose
 }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
@@ -81,6 +97,18 @@ export default function ScoreHistoryModal({
   const stats = useMemo(() => computeStats(points), [points]);
   const scans = useMemo(() => reduceToScans(points), [points]);
   const chart = useMemo(() => buildAreaPath(scans.map((p) => p.total_score), 980, 300, 18), [scans]);
+
+  const pointXY = useMemo(() => {
+    if (!chart?.xy?.length) return [];
+    if (scans.length <= 1) return [{ x: chart.xy[0].x, y: chart.xy[0].y }];
+    return chart.xy.slice(0, scans.length);
+  }, [chart, scans.length]);
+
+  const hovered = hoveredIdx == null ? null : scans[hoveredIdx];
+  const hoveredPos = hoveredIdx == null ? null : pointXY[hoveredIdx];
+  const hoveredScore = hovered ? Number(hovered.total_score ?? 0) : null;
+  const hoveredPrev = hoveredIdx != null && hoveredIdx > 0 ? scans[hoveredIdx - 1] : null;
+  const hoveredDelta = hoveredPrev ? (hoveredScore - Number(hoveredPrev.total_score ?? 0)) : null;
 
   if (!open) return null;
 
@@ -146,7 +174,11 @@ export default function ScoreHistoryModal({
               <div className="shm-chart-sub">Score changes across scans</div>
             </div>
 
-            <div className="shm-chart-wrap" aria-label="Score trend chart">
+            <div
+              className="shm-chart-wrap"
+              aria-label="Score trend chart"
+              onMouseLeave={() => setHoveredIdx(null)}
+            >
               <svg viewBox="0 0 980 300" className="shm-svg" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="shmFill" x1="0" x2="0" y1="0" y2="1">
@@ -164,15 +196,52 @@ export default function ScoreHistoryModal({
                 {/* Trend */}
                 {!loading && chart.area && <path d={chart.area} fill="url(#shmFill)" />}
                 {!loading && chart.line && <path d={chart.line} className="shm-line" fill="none" />}
-                {!loading && chart.xy?.length ? (
-                  <circle
-                    cx={chart.xy[chart.xy.length - 1].x}
-                    cy={chart.xy[chart.xy.length - 1].y}
-                    r="3.5"
-                    fill="rgba(34, 211, 238, 0.95)"
-                  />
+                {!loading && pointXY.length ? (
+                  <>
+                    {pointXY.map((p, i) => (
+                      <g key={i}>
+                        {/* hit area */}
+                        <circle
+                          cx={p.x}
+                          cy={p.y}
+                          r="10"
+                          className="shm-point-hit"
+                          onMouseEnter={() => setHoveredIdx(i)}
+                        />
+                        {/* visible dot */}
+                        <circle
+                          cx={p.x}
+                          cy={p.y}
+                          r={hoveredIdx === i ? '4.5' : '3.0'}
+                          className={`shm-point ${hoveredIdx === i ? 'active' : ''}`}
+                        />
+                      </g>
+                    ))}
+                  </>
                 ) : null}
               </svg>
+
+              {!loading && hovered && hoveredPos && (
+                <div
+                  className="shm-tooltip"
+                  style={{
+                    left: `${(hoveredPos.x / 980) * 100}%`,
+                    top: `${(hoveredPos.y / 300) * 100}%`
+                  }}
+                >
+                  <div className="shm-tooltip-title">{fmtDateTime(hovered.scanned_at)}</div>
+                  <div className="shm-tooltip-row">
+                    <span>Score</span>
+                    <strong>{hoveredScore}</strong>
+                  </div>
+                  {hoveredDelta != null && (
+                    <div className="shm-tooltip-row">
+                      <span>Change</span>
+                      <strong>{hoveredDelta > 0 ? `+${hoveredDelta}` : `${hoveredDelta}`}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="shm-xlabels">
                 {scans.length > 1 ? (
