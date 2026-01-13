@@ -277,8 +277,14 @@ mkdir -p "$DEPLOY_DIR"
 
 # Copy only what's needed
 cp -r backend "$DEPLOY_DIR/"
-cp -r frontend/dist "$DEPLOY_DIR/frontend/"
 mkdir -p "$DEPLOY_DIR/frontend/dist"
+# Copy built frontend assets into the location the backend serves in production: frontend/dist
+# Use rsync-style trailing slash semantics to avoid accidentally flattening the directory.
+if command -v rsync &> /dev/null; then
+  rsync -a --delete "frontend/dist/" "$DEPLOY_DIR/frontend/dist/"
+else
+  cp -R "frontend/dist/." "$DEPLOY_DIR/frontend/dist/"
+fi
 # Use a dedicated deploy package manifest that won't trigger frontend builds in Databricks Apps
 cp package-deploy.json "$DEPLOY_DIR/package.json"
 cp package-lock.json "$DEPLOY_DIR/" 2>/dev/null || true
