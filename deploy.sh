@@ -122,6 +122,26 @@ if ! dbx current-user me &> /dev/null; then
         WORKSPACE_URL="${WORKSPACE_URL%/}"
     fi
     "$DBX_BIN" auth login --host "$WORKSPACE_URL" --profile "${PROFILE}"
+
+    # Validate login really completed (the CLI may create/update a profile even if the browser flow wasn't finished).
+    echo "  Verifying authentication..."
+    AUTH_OK=0
+    for i in {1..15}; do
+        if dbx current-user me &> /dev/null; then
+            AUTH_OK=1
+            break
+        fi
+        sleep 2
+    done
+    if [ "$AUTH_OK" != "1" ]; then
+        echo -e "${RED}✗ Authentication was not completed.${NC}"
+        echo "  Please finish the browser login flow, then verify with:"
+        echo "    $DBX_BIN --profile \"$PROFILE\" current-user me"
+        echo ""
+        echo "  Then rerun:"
+        echo "    TARGET_DATABRICKS_HOST=\"$WORKSPACE_URL\" DATABRICKS_CONFIG_PROFILE=\"$PROFILE\" ./deploy.sh"
+        exit 1
+    fi
 fi
 
 USER_EMAIL="$(dbx current-user me --output json 2>/dev/null | json_value 'obj.get(\"userName\")')"
