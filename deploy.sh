@@ -34,14 +34,16 @@ dbx() {
 }
 
 json_value() {
-  # Reads mixed output and extracts the first JSON object, then prints a field.
-  # Usage: json_value "<field_expr>"
+  # Reads mixed output from stdin, extracts the first JSON object, then prints a field.
+  # Usage: json_value '<python_expr_using_obj>'
   # Example: json_value 'obj.get("userName")'
-  python3 - "$@" <<'PY'
-import sys, json, re
+  #
+  # IMPORTANT: This function must read JSON from stdin. Do NOT use `python3 -` with a heredoc,
+  # because that consumes stdin for the program source and leaves no stdin for the JSON payload.
+  python3 -c 'import sys, json, re
 expr = sys.argv[1] if len(sys.argv) > 1 else ""
 raw = sys.stdin.read()
-m = re.search(r'(\{[\s\S]*\})', raw)
+m = re.search(r"(\\{[\\s\\S]*\\})", raw)
 if not m:
   sys.exit(0)
 obj = json.loads(m.group(1))
@@ -51,8 +53,7 @@ if val is None:
 if isinstance(val, (list, dict)):
   print(json.dumps(val))
 else:
-  print(str(val))
-PY
+  print(str(val))' "$@"
 }
 
 # Script directory
