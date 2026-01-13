@@ -200,7 +200,7 @@ else
         # Best-effort: discover the instance name from the host so the app can request DB credentials at runtime.
         LAKEBASE_INSTANCE_NAME="${EXISTING_LAKEBASE_INSTANCE:-}"
         if [ -z "${LAKEBASE_INSTANCE_NAME}" ]; then
-          LAKEBASE_INSTANCE_NAME="$(dbx database list-database-instances --output json 2>/dev/null | python3 -c 'import sys, json; host=sys.argv[1]; items=json.load(sys.stdin); print(next(((it.get(\"name\") or it.get(\"instance_name\")) for it in (items if isinstance(items, list) else (items.get(\"database_instances\") or items.get(\"instances\") or [])) if isinstance(it, dict) and ((it.get(\"read_write_dns\") or it.get(\"endpoint\") or \"\") == host)), \"\"))' \"${LAKEBASE_HOST}\")"
+          LAKEBASE_INSTANCE_NAME="$(dbx database list-database-instances --output json 2>/dev/null | python3 -c "import sys, json; host=sys.argv[1]; data=json.load(sys.stdin); items=(data if isinstance(data, list) else (data.get('database_instances') or data.get('instances') or [])); print(next(((it.get('name') or it.get('instance_name')) for it in items if isinstance(it, dict) and ((it.get('read_write_dns') or it.get('endpoint') or '') == host)), ''))" "${LAKEBASE_HOST}")"
         fi
         if [ -z "${LAKEBASE_INSTANCE_NAME}" ]; then
           LAKEBASE_INSTANCE_NAME="${LAKEBASE_INSTANCE}"
