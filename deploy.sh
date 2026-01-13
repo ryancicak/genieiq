@@ -43,7 +43,7 @@ json_value() {
   python3 -c 'import sys, json, re
 expr = sys.argv[1] if len(sys.argv) > 1 else ""
 raw = sys.stdin.read()
-m = re.search(r"(\\{[\\s\\S]*\\})", raw)
+m = re.search(r"(\{[\s\S]*\})", raw)
 if not m:
   sys.exit(0)
 obj = json.loads(m.group(1))
