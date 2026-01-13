@@ -103,7 +103,7 @@ echo -e "${BOLD}[2/7] Checking Databricks authentication...${NC}"
 DESIRED_HOST="${TARGET_DATABRICKS_HOST:-}"
 DESIRED_HOST="${DESIRED_HOST%/}"
 
-CURRENT_HOST="$(dbx auth describe --output json 2>/dev/null | json_value 'obj.get(\"details\", {}).get(\"host\") or obj.get(\"details\", {}).get(\"configuration\", {}).get(\"host\", {}).get(\"value\")')"
+CURRENT_HOST="$(dbx auth describe --output json 2>/dev/null | json_value 'obj.get("details", {}).get("host") or obj.get("details", {}).get("configuration", {}).get("host", {}).get("value")')"
 CURRENT_HOST="${CURRENT_HOST%/}"
 
 if [ -n "${DESIRED_HOST}" ] && [ -n "${CURRENT_HOST}" ] && [ "${CURRENT_HOST}" != "${DESIRED_HOST}" ]; then
@@ -144,8 +144,8 @@ if ! dbx current-user me &> /dev/null; then
     fi
 fi
 
-USER_EMAIL="$(dbx current-user me --output json 2>/dev/null | json_value 'obj.get(\"userName\")')"
-WORKSPACE_HOST="$(dbx auth describe --output json 2>/dev/null | json_value 'obj.get(\"details\", {}).get(\"host\") or obj.get(\"details\", {}).get(\"configuration\", {}).get(\"host\", {}).get(\"value\")')"
+USER_EMAIL="$(dbx current-user me --output json 2>/dev/null | json_value 'obj.get("userName")')"
+WORKSPACE_HOST="$(dbx auth describe --output json 2>/dev/null | json_value 'obj.get("details", {}).get("host") or obj.get("details", {}).get("configuration", {}).get("host", {}).get("value")')"
 
 if [ -z "${USER_EMAIL}" ] || [ -z "${WORKSPACE_HOST}" ]; then
     echo -e "${RED}✗ Could not determine your user email or workspace host from the Databricks CLI.${NC}"
@@ -211,7 +211,7 @@ else
         else
             echo "  Waiting for instance to start..."
             for i in {1..60}; do
-                STATE=$(dbx database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>/dev/null | json_value 'obj.get(\"state\")')
+                STATE=$(dbx database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>/dev/null | json_value 'obj.get("state")')
                 if [ "$STATE" = "AVAILABLE" ]; then
                     break
                 fi
@@ -229,7 +229,7 @@ else
         if [ "$LAKEBASE_STATE" != "AVAILABLE" ]; then
             echo -e "${YELLOW}  ! Lakebase is $LAKEBASE_STATE, waiting...${NC}"
             for i in {1..60}; do
-                STATE=$(dbx database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>/dev/null | json_value 'obj.get(\"state\")')
+                STATE=$(dbx database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>/dev/null | json_value 'obj.get("state")')
                 if [ "$STATE" = "AVAILABLE" ]; then
                     break
                 fi
