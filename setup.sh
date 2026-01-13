@@ -136,11 +136,21 @@ if [[ "$DO_DEPLOY" =~ ^[Yy]$ ]]; then
   # Normalize: remove trailing slash
   DBX_HOST="${DBX_HOST%/}"
 
+  # If the user provided Lakebase connection info in setup, pass it through so deploy.sh
+  # can wire the app to an existing Lakebase instance even if provisioning APIs are blocked/quota is hit.
+  EXISTING_LAKEBASE_HOST="$(grep -E '^LAKEBASE_HOST=' "$ENV_FILE" | tail -1 | cut -d'=' -f2- | tr -d '\"' || true)"
+  EXISTING_LAKEBASE_DATABASE="$(grep -E '^LAKEBASE_DATABASE=' "$ENV_FILE" | tail -1 | cut -d'=' -f2- | tr -d '\"' || true)"
+  EXISTING_LAKEBASE_HOST="${EXISTING_LAKEBASE_HOST%/}"
+
   echo ""
   echo -e "${GREEN}→ Deploying to ${DBX_HOST}${NC}"
   echo ""
   # Use a stable default profile so repeated runs behave predictably.
-  TARGET_DATABRICKS_HOST="$DBX_HOST" DATABRICKS_CONFIG_PROFILE="${DATABRICKS_CONFIG_PROFILE:-genieiq}" ./deploy.sh
+  TARGET_DATABRICKS_HOST="$DBX_HOST" \
+    DATABRICKS_CONFIG_PROFILE="${DATABRICKS_CONFIG_PROFILE:-genieiq}" \
+    EXISTING_LAKEBASE_HOST="${EXISTING_LAKEBASE_HOST:-}" \
+    EXISTING_LAKEBASE_DATABASE="${EXISTING_LAKEBASE_DATABASE:-}" \
+    ./deploy.sh
 else
   echo "Skipped deploy."
   echo "To deploy later: ./deploy.sh"

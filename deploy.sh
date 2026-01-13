@@ -147,12 +147,22 @@ echo ""
 echo -e "${BOLD}[3/7] Setting up Lakebase database (optional)...${NC}"
 
 LAKEBASE_HOST=""
+LAKEBASE_DATABASE_NAME=""
 LAKEBASE_STATE=""
 INSTANCE_JSON=""
 
 if [ "$SKIP_LAKEBASE" = "1" ]; then
     echo -e "${YELLOW}  ! SKIP_LAKEBASE=1 set - deploying without Lakebase (in-memory storage).${NC}"
 else
+    # If the caller already knows the Lakebase connection details (common when instance quota is hit),
+    # use them directly and skip provisioning via the Databricks database APIs.
+    if [ -n "${EXISTING_LAKEBASE_HOST:-}" ]; then
+        LAKEBASE_HOST="${EXISTING_LAKEBASE_HOST}"
+        LAKEBASE_DATABASE_NAME="${EXISTING_LAKEBASE_DATABASE:-databricks_postgres}"
+        echo -e "${GREEN}  ✓ Using existing Lakebase connection (skipping provisioning)${NC}"
+        echo -e "${GREEN}  ✓ Host: ${LAKEBASE_HOST}${NC}"
+        echo -e "${GREEN}  ✓ Database: ${LAKEBASE_DATABASE_NAME}${NC}"
+    else
     ERR_FILE="$(mktemp)"
     if ! INSTANCE_JSON=$(dbx database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>"$ERR_FILE"); then
         ERR_MSG="$(cat "$ERR_FILE" || true)"
@@ -160,7 +170,10 @@ else
         if echo "$ERR_MSG" | grep -qiE "does not exist|RESOURCE_DOES_NOT_EXIST|NOT_FOUND"; then
             INSTANCE_JSON=""
         else
-            echo -e "${YELLOW}  ! Lakebase not available in this workspace or you lack permissions.${NC}"
+            echo -e "${YELLOW}  ! Could not manage Lakebase instances via the Databricks CLI in this workspace.${NC}"
+            echo -e "${YELLOW}    This does NOT necessarily mean your Lakebase database doesn't exist.${NC}"
+            echo -e "${YELLOW}    If you already have a Lakebase host/dbname, rerun with:${NC}"
+            echo -e "${YELLOW}      EXISTING_LAKEBASE_HOST=... EXISTING_LAKEBASE_DATABASE=... ./deploy.sh${NC}"
             echo -e "${YELLOW}    Proceeding without Lakebase (in-memory storage).${NC}"
             SKIP_LAKEBASE="1"
         fi
@@ -191,6 +204,7 @@ else
     if [ "$SKIP_LAKEBASE" != "1" ] && [ -n "$INSTANCE_JSON" ]; then
         LAKEBASE_HOST=$(echo "$INSTANCE_JSON" | grep -o '"read_write_dns":"[^"]*"' | cut -d'"' -f4)
         LAKEBASE_STATE=$(echo "$INSTANCE_JSON" | grep -o '"state":"[^"]*"' | cut -d'"' -f4)
+        LAKEBASE_DATABASE_NAME="databricks_postgres"
 
         if [ "$LAKEBASE_STATE" != "AVAILABLE" ]; then
             echo -e "${YELLOW}  ! Lakebase is $LAKEBASE_STATE, waiting...${NC}"
@@ -205,6 +219,7 @@ else
 
         echo -e "${GREEN}  ✓ Lakebase instance: $LAKEBASE_INSTANCE${NC}"
         echo -e "${GREEN}  ✓ Host: $LAKEBASE_HOST${NC}"
+    fi
     fi
 fi
 
@@ -280,7 +295,7 @@ ENV_ARGS=(--env "NODE_ENV=production")
 if [ -n "${LAKEBASE_HOST}" ]; then
     ENV_ARGS+=(--env "LAKEBASE_HOST=$LAKEBASE_HOST")
     # Lakebase provisioned Postgres default database name is typically `databricks_postgres`.
-    ENV_ARGS+=(--env "LAKEBASE_DATABASE=databricks_postgres")
+    ENV_ARGS+=(--env "LAKEBASE_DATABASE=${LAKEBASE_DATABASE_NAME:-databricks_postgres}")
     ENV_ARGS+=(--env "LAKEBASE_INSTANCE=$LAKEBASE_INSTANCE")
     ENV_ARGS+=(--env "DATABRICKS_USER=$USER_EMAIL")
 fi
