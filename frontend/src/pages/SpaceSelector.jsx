@@ -217,6 +217,17 @@ function SpaceSelector({ user, health }) {
                 <br />
                 <br />
                 First-time deploy: run <strong>./deploy.sh</strong> to provision/connect Lakebase (or use <strong>scripts/Deploy_GenieIQ.command</strong> on macOS).
+                {typeof health?.database?.error === 'string' && health.database.error.includes('does not exist') && (
+                  <>
+                    <br />
+                    <br />
+                    <strong>Fix (common):</strong> grant the GenieIQ app service principal access to this Lakebase instance.
+                    <br />
+                    In Databricks: Compute → Lakebase Postgres → your instance → Permissions → Add principal.
+                    <br />
+                    Service principal client id: <strong>{health?.servicePrincipalClientId || '(unknown)'}</strong>
+                  </>
+                )}
               </div>
             </div>
             <div className="alert-actions">

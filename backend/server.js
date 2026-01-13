@@ -50,8 +50,10 @@ app.get('/api/health', authMiddleware, async (req, res) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     database: dbHealth,
+    servicePrincipalClientId: process.env.DATABRICKS_CLIENT_ID || null,
     env: {
       hasHost: !!process.env.DATABRICKS_HOST,
+      lakebaseConfigured: !!process.env.LAKEBASE_HOST,
       nodeEnv: process.env.NODE_ENV
     }
   });
