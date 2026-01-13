@@ -178,6 +178,7 @@ echo -e "${BOLD}[3/7] Setting up Lakebase database (optional)...${NC}"
 
 LAKEBASE_HOST=""
 LAKEBASE_DATABASE_NAME=""
+LAKEBASE_INSTANCE_NAME=""
 LAKEBASE_STATE=""
 INSTANCE_JSON=""
 
@@ -196,9 +197,19 @@ else
     if [ -n "${EXISTING_LAKEBASE_HOST:-}" ]; then
         LAKEBASE_HOST="${EXISTING_LAKEBASE_HOST}"
         LAKEBASE_DATABASE_NAME="${EXISTING_LAKEBASE_DATABASE:-databricks_postgres}"
+        # Best-effort: discover the instance name from the host so the app can request DB credentials at runtime.
+        LAKEBASE_INSTANCE_NAME="${EXISTING_LAKEBASE_INSTANCE:-}"
+        if [ -z "${LAKEBASE_INSTANCE_NAME}" ]; then
+          LAKEBASE_INSTANCE_NAME="$(dbx database list-database-instances --output json 2>/dev/null | python3 -c 'import sys,json\nhost=sys.argv[1]\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o={}\nitems=o.get(\"database_instances\") or o.get(\"instances\") or []\nfor it in items:\n  dns=it.get(\"read_write_dns\") or it.get(\"endpoint\") or \"\"\n  name=it.get(\"name\") or it.get(\"instance_name\")\n  if dns==host and name:\n    print(name)\n    break' \"${LAKEBASE_HOST}\")"
+        fi
+        if [ -z "${LAKEBASE_INSTANCE_NAME}" ]; then
+          LAKEBASE_INSTANCE_NAME="${LAKEBASE_INSTANCE}"
+          echo -e "${YELLOW}  ! Could not auto-detect Lakebase instance name from host; using '${LAKEBASE_INSTANCE_NAME}'.${NC}"
+        fi
         echo -e "${GREEN}  ✓ Using existing Lakebase connection (skipping provisioning)${NC}"
         echo -e "${GREEN}  ✓ Host: ${LAKEBASE_HOST}${NC}"
         echo -e "${GREEN}  ✓ Database: ${LAKEBASE_DATABASE_NAME}${NC}"
+        echo -e "${GREEN}  ✓ Instance: ${LAKEBASE_INSTANCE_NAME}${NC}"
     else
     ERR_FILE="$(mktemp)"
     if ! INSTANCE_JSON=$(dbx database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>"$ERR_FILE"); then
@@ -242,6 +253,7 @@ else
         LAKEBASE_HOST=$(echo "$INSTANCE_JSON" | grep -o '"read_write_dns":"[^"]*"' | cut -d'"' -f4)
         LAKEBASE_STATE=$(echo "$INSTANCE_JSON" | grep -o '"state":"[^"]*"' | cut -d'"' -f4)
         LAKEBASE_DATABASE_NAME="databricks_postgres"
+        LAKEBASE_INSTANCE_NAME="$LAKEBASE_INSTANCE"
 
         if [ "$LAKEBASE_STATE" != "AVAILABLE" ]; then
             echo -e "${YELLOW}  ! Lakebase is $LAKEBASE_STATE, waiting...${NC}"
@@ -324,7 +336,7 @@ if [ -n "${LAKEBASE_HOST}" ]; then
   - name: LAKEBASE_DATABASE
     value: "${LAKEBASE_DATABASE_NAME:-databricks_postgres}"
   - name: LAKEBASE_INSTANCE
-    value: "${LAKEBASE_INSTANCE}"
+    value: "${LAKEBASE_INSTANCE_NAME:-$LAKEBASE_INSTANCE}"
   - name: DATABRICKS_USER
     value: "${USER_EMAIL}"
 YAML

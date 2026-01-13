@@ -55,6 +55,58 @@ function identityFromClaims(claims) {
   );
 }
 
+async function getAppClientCredentialsToken({ scope = 'all-apis' } = {}) {
+  const clientId = process.env.DATABRICKS_CLIENT_ID;
+  const clientSecret = process.env.DATABRICKS_CLIENT_SECRET;
+  const hostEnv = process.env.DATABRICKS_HOST;
+  if (!clientId || !clientSecret || !hostEnv) return null;
+  const baseUrl = hostEnv.startsWith('http') ? hostEnv : `https://${hostEnv}`;
+  const tokenUrl = `${baseUrl}/oidc/v1/token`;
+  try {
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+        scope
+      })
+    });
+    if (!response.ok) return null;
+    const data = await response.json().catch(() => ({}));
+    return data?.access_token || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getDatabaseCredentialToken({ instanceName }) {
+  const hostEnv = process.env.DATABRICKS_HOST;
+  if (!hostEnv || !instanceName) return null;
+  const baseUrl = hostEnv.startsWith('http') ? hostEnv : `https://${hostEnv}`;
+  const accessToken = await getAppClientCredentialsToken({ scope: 'all-apis' });
+  if (!accessToken) return null;
+  try {
+    const response = await fetch(`${baseUrl}/api/2.0/database/credentials`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        instance_names: [instanceName],
+        request_id: crypto.randomUUID()
+      })
+    });
+    if (!response.ok) return null;
+    const data = await response.json().catch(() => ({}));
+    return data?.token || null;
+  } catch {
+    return null;
+  }
+}
+
 function hashToken(token) {
   try {
     return crypto.createHash('sha256').update(String(token || '')).digest('hex').slice(0, 16);
@@ -578,31 +630,13 @@ async function getPool({ userEmail = null, token = null } = {}) {
   if (process.env.LAKEBASE_TOKEN) candidates.push({ token: process.env.LAKEBASE_TOKEN, kind: 'lakebase_env' });
   if (process.env.DATABRICKS_TOKEN) candidates.push({ token: process.env.DATABRICKS_TOKEN, kind: 'databricks_env' });
 
-  // Add service-principal DB-scoped tokens as last resort.
-  // (Some workspaces require a DB-scoped token; others accept standard app/session tokens.)
+  // Add service-principal DB credential token as last resort.
+  // This matches the "Get OAuth token (1 hr lifetime) for PGPASSWORD" flow and tends to work consistently.
   try {
-    const clientId = process.env.DATABRICKS_CLIENT_ID;
-    const clientSecret = process.env.DATABRICKS_CLIENT_SECRET;
-    const hostEnv = process.env.DATABRICKS_HOST;
-    if (clientId && clientSecret && hostEnv) {
-      const baseUrl = hostEnv.startsWith('http') ? hostEnv : `https://${hostEnv}`;
-      const tokenUrl = `${baseUrl}/oidc/v1/token`;
-      for (const scope of ['database', 'lakebase']) {
-        const response = await fetch(tokenUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'client_credentials',
-            client_id: clientId,
-            client_secret: clientSecret,
-            scope
-          })
-        });
-        if (response.ok) {
-          const data = await response.json().catch(() => ({}));
-          if (data?.access_token) candidates.push({ token: data.access_token, kind: `sp:${scope}` });
-        }
-      }
+    const instanceName = process.env.LAKEBASE_INSTANCE;
+    if (instanceName) {
+      const dbCredToken = await getDatabaseCredentialToken({ instanceName });
+      if (dbCredToken) candidates.push({ token: dbCredToken, kind: 'sp:db-credential' });
     }
   } catch {
     // ignore
