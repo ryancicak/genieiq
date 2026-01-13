@@ -19,6 +19,42 @@ LAKEBASE_INSTANCE="genieiq-db"
 WORKSPACE_PATH="/Workspace/Users/\${USER_EMAIL}/genieiq-deploy"
 SKIP_LAKEBASE="${SKIP_LAKEBASE:-0}"
 
+# Prefer the real Databricks CLI binary to avoid the wrapper output that breaks JSON parsing.
+DBX_BIN="$(command -v databricks || true)"
+if [ -x "/opt/homebrew/bin/databricks" ]; then
+  DBX_BIN="/opt/homebrew/bin/databricks"
+fi
+
+# Use a stable profile by default so auth + subsequent commands are consistent.
+# setup.sh can set DATABRICKS_CONFIG_PROFILE, otherwise we use "genieiq".
+PROFILE="${DATABRICKS_CONFIG_PROFILE:-genieiq}"
+
+dbx() {
+  "$DBX_BIN" --profile "$PROFILE" "$@"
+}
+
+json_value() {
+  # Reads mixed output and extracts the first JSON object, then prints a field.
+  # Usage: json_value "<field_expr>"
+  # Example: json_value 'obj.get("userName")'
+  python3 - "$@" <<'PY'
+import sys, json, re
+expr = sys.argv[1] if len(sys.argv) > 1 else ""
+raw = sys.stdin.read()
+m = re.search(r'(\{[\s\S]*\})', raw)
+if not m:
+  sys.exit(0)
+obj = json.loads(m.group(1))
+val = eval(expr, {"obj": obj})
+if val is None:
+  sys.exit(0)
+if isinstance(val, (list, dict)):
+  print(json.dumps(val))
+else:
+  print(str(val))
+PY
+}
+
 # Script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
@@ -67,7 +103,7 @@ echo -e "${BOLD}[2/7] Checking Databricks authentication...${NC}"
 DESIRED_HOST="${TARGET_DATABRICKS_HOST:-}"
 DESIRED_HOST="${DESIRED_HOST%/}"
 
-CURRENT_HOST="$(databricks auth describe --output json 2>/dev/null | grep -o '\"host\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4 || true)"
+CURRENT_HOST="$(dbx auth describe --output json 2>/dev/null | json_value 'obj.get(\"details\", {}).get(\"host\") or obj.get(\"details\", {}).get(\"configuration\", {}).get(\"host\", {}).get(\"value\")')"
 CURRENT_HOST="${CURRENT_HOST%/}"
 
 if [ -n "${DESIRED_HOST}" ] && [ -n "${CURRENT_HOST}" ] && [ "${CURRENT_HOST}" != "${DESIRED_HOST}" ]; then
@@ -75,21 +111,31 @@ if [ -n "${DESIRED_HOST}" ] && [ -n "${CURRENT_HOST}" ] && [ "${CURRENT_HOST}" !
     echo -e "${YELLOW}    current: ${CURRENT_HOST}${NC}"
     echo -e "${YELLOW}    desired: ${DESIRED_HOST}${NC}"
     echo "  Re-authenticating to the desired workspace..."
-    databricks auth login --host "${DESIRED_HOST}"
+    "$DBX_BIN" auth login --host "${DESIRED_HOST}" --profile "${PROFILE}"
 fi
 
-if ! databricks current-user me &> /dev/null; then
+if ! dbx current-user me &> /dev/null; then
     echo -e "${YELLOW}  ! Not authenticated${NC}"
     WORKSPACE_URL="${DESIRED_HOST}"
     if [ -z "${WORKSPACE_URL}" ]; then
         read -p "  Enter your Databricks workspace URL: " WORKSPACE_URL
         WORKSPACE_URL="${WORKSPACE_URL%/}"
     fi
-    databricks auth login --host "$WORKSPACE_URL"
+    "$DBX_BIN" auth login --host "$WORKSPACE_URL" --profile "${PROFILE}"
 fi
 
-USER_EMAIL=$(databricks current-user me --output json 2>/dev/null | grep -o '"userName":"[^"]*"' | cut -d'"' -f4)
-WORKSPACE_HOST=$(databricks auth describe --output json 2>/dev/null | grep -o '"host":"[^"]*"' | head -1 | cut -d'"' -f4)
+USER_EMAIL="$(dbx current-user me --output json 2>/dev/null | json_value 'obj.get(\"userName\")')"
+WORKSPACE_HOST="$(dbx auth describe --output json 2>/dev/null | json_value 'obj.get(\"details\", {}).get(\"host\") or obj.get(\"details\", {}).get(\"configuration\", {}).get(\"host\", {}).get(\"value\")')"
+
+if [ -z "${USER_EMAIL}" ] || [ -z "${WORKSPACE_HOST}" ]; then
+    echo -e "${RED}✗ Could not determine your user email or workspace host from the Databricks CLI.${NC}"
+    echo -e "${RED}  USER_EMAIL='${USER_EMAIL}' WORKSPACE_HOST='${WORKSPACE_HOST}'${NC}"
+    echo ""
+    echo "Fix:"
+    echo "  1) Ensure you can run: $DBX_BIN --profile \"$PROFILE\" current-user me"
+    echo "  2) Then rerun: ./deploy.sh"
+    exit 1
+fi
 
 echo -e "${GREEN}  ✓ Authenticated as ${USER_EMAIL}${NC}"
 echo -e "${GREEN}  ✓ Workspace: ${WORKSPACE_HOST}${NC}"
@@ -108,7 +154,7 @@ if [ "$SKIP_LAKEBASE" = "1" ]; then
     echo -e "${YELLOW}  ! SKIP_LAKEBASE=1 set - deploying without Lakebase (in-memory storage).${NC}"
 else
     ERR_FILE="$(mktemp)"
-    if ! INSTANCE_JSON=$(databricks database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>"$ERR_FILE"); then
+    if ! INSTANCE_JSON=$(dbx database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>"$ERR_FILE"); then
         ERR_MSG="$(cat "$ERR_FILE" || true)"
         # If the instance simply doesn't exist, we'll create it. Otherwise, skip Lakebase.
         if echo "$ERR_MSG" | grep -qiE "does not exist|RESOURCE_DOES_NOT_EXIST|NOT_FOUND"; then
@@ -123,7 +169,7 @@ else
 
     if [ "$SKIP_LAKEBASE" != "1" ] && [ -z "$INSTANCE_JSON" ]; then
         echo "  Creating Lakebase instance '$LAKEBASE_INSTANCE'..."
-        if ! databricks database create-database-instance "$LAKEBASE_INSTANCE" \
+        if ! dbx database create-database-instance "$LAKEBASE_INSTANCE" \
             --capacity CU_1 \
             --enable-pg-native-login \
             --no-wait; then
@@ -132,13 +178,13 @@ else
         else
             echo "  Waiting for instance to start..."
             for i in {1..60}; do
-                STATE=$(databricks database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>/dev/null | grep -o '"state":"[^"]*"' | cut -d'"' -f4)
+                STATE=$(dbx database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>/dev/null | json_value 'obj.get(\"state\")')
                 if [ "$STATE" = "AVAILABLE" ]; then
                     break
                 fi
                 sleep 5
             done
-            INSTANCE_JSON=$(databricks database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>/dev/null || echo "")
+            INSTANCE_JSON=$(dbx database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>/dev/null || echo "")
         fi
     fi
 
@@ -149,7 +195,7 @@ else
         if [ "$LAKEBASE_STATE" != "AVAILABLE" ]; then
             echo -e "${YELLOW}  ! Lakebase is $LAKEBASE_STATE, waiting...${NC}"
             for i in {1..60}; do
-                STATE=$(databricks database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>/dev/null | grep -o '"state":"[^"]*"' | cut -d'"' -f4)
+                STATE=$(dbx database get-database-instance "$LAKEBASE_INSTANCE" --output json 2>/dev/null | json_value 'obj.get(\"state\")')
                 if [ "$STATE" = "AVAILABLE" ]; then
                     break
                 fi
@@ -222,7 +268,7 @@ WORKSPACE_DEPLOY_PATH="/Workspace/Users/${USER_EMAIL}/genieiq-${DEPLOY_VERSION}"
 echo "  Uploading to ${WORKSPACE_DEPLOY_PATH}..."
 
 # Upload the deployment directory
-databricks workspace import-dir "$DEPLOY_DIR" "$WORKSPACE_DEPLOY_PATH" --overwrite
+dbx workspace import-dir "$DEPLOY_DIR" "$WORKSPACE_DEPLOY_PATH" --overwrite
 
 echo -e "${GREEN}  ✓ Files uploaded${NC}"
 
@@ -240,17 +286,17 @@ if [ -n "${LAKEBASE_HOST}" ]; then
 fi
 
 # Check if app exists
-if databricks apps get "$APP_NAME" &> /dev/null; then
+if dbx apps get "$APP_NAME" &> /dev/null; then
     # Update existing app
-    databricks apps deploy "$APP_NAME" \
+    dbx apps deploy "$APP_NAME" \
         --source-code-path "$WORKSPACE_DEPLOY_PATH" \
         "${ENV_ARGS[@]}"
 else
     # Create new app
-    databricks apps create "$APP_NAME" \
+    dbx apps create "$APP_NAME" \
         --description "GenieIQ - For Better Answers" 
     
-    databricks apps deploy "$APP_NAME" \
+    dbx apps deploy "$APP_NAME" \
         --source-code-path "$WORKSPACE_DEPLOY_PATH" \
         "${ENV_ARGS[@]}"
 fi

@@ -139,7 +139,8 @@ if [[ "$DO_DEPLOY" =~ ^[Yy]$ ]]; then
   echo ""
   echo -e "${GREEN}→ Deploying to ${DBX_HOST}${NC}"
   echo ""
-  TARGET_DATABRICKS_HOST="$DBX_HOST" ./deploy.sh
+  # Use a stable default profile so repeated runs behave predictably.
+  TARGET_DATABRICKS_HOST="$DBX_HOST" DATABRICKS_CONFIG_PROFILE="${DATABRICKS_CONFIG_PROFILE:-genieiq}" ./deploy.sh
 else
   echo "Skipped deploy."
   echo "To deploy later: ./deploy.sh"
