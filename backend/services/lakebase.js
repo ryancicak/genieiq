@@ -545,10 +545,12 @@ async function tryCreatePool({ host, database, user, token }) {
     await p.query('SELECT 1');
     p.on('error', (err) => console.error('Lakebase pool error:', err.message));
     poolCache.set(cacheKey, { pool: p, expiry });
-    return p;
-  } catch {
+    return { pool: p, error: null };
+  } catch (e) {
     try { await p.end(); } catch {}
-    return null;
+    const msg = e?.message ? String(e.message) : String(e);
+    const code = e?.code ? String(e.code) : null;
+    return { pool: null, error: code ? `${code}: ${msg}` : msg };
   }
 }
 
@@ -610,6 +612,7 @@ async function getPool({ userEmail = null, token = null } = {}) {
     return null;
   }
 
+  const failures = [];
   for (const c of candidates) {
     const claims = decodeJwtClaims(c.token);
     const ident = identityFromClaims(claims);
@@ -619,13 +622,22 @@ async function getPool({ userEmail = null, token = null } = {}) {
         : (ident || userEmail || process.env.DATABRICKS_USER || process.env.USER_EMAIL)) ||
       'databricks_user';
 
-    const p = await tryCreatePool({ host, database, user, token: c.token });
-    if (p) {
+    const attempt = await tryCreatePool({ host, database, user, token: c.token });
+    if (attempt?.pool) {
       console.log(`🔌 Connecting to Lakebase: ${host}:${process.env.LAKEBASE_PORT || '5432'}/${database} as ${c.kind === 'request' ? 'user' : 'env-user'} (${c.kind})`);
-      return p;
+      return attempt.pool;
     }
+    failures.push({ kind: c.kind, user, error: attempt?.error || 'unknown' });
   }
 
+  if (failures.length) {
+    const summarized = failures.slice(0, 6).map((f) => ({
+      kind: f.kind,
+      user: f.user,
+      error: String(f.error).slice(0, 180)
+    }));
+    console.warn('⚠️ Lakebase connection failed for all credential candidates:', summarized);
+  }
   return null;
 }
 
@@ -920,6 +932,9 @@ async function healthCheck({ userEmail = null, token = null } = {}) {
   
   try {
     const dbPool = await getPool({ userEmail, token });
+    if (!dbPool) {
+      return { status: 'unhealthy', mode: 'lakebase', host: process.env.LAKEBASE_HOST, error: 'No valid Lakebase credentials (see server logs)' };
+    }
     await dbPool.query('SELECT 1');
     return { status: 'healthy', mode: 'lakebase', host: process.env.LAKEBASE_HOST };
   } catch (error) {
