@@ -41,39 +41,17 @@ app.use('/api/auth', authRoutes);
 app.use('/api/spaces', authMiddleware, spacesRoutes);
 app.use('/api/admin', authMiddleware, adminRoutes);
 
-// Health check
-app.get('/api/health', async (req, res) => {
-  // Try to infer storage mode using the caller's proxy token when present.
-  const userEmail =
-    req.headers['x-forwarded-email'] ||
-    req.headers['x-user-email'] ||
-    req.headers['x-databricks-user-email'] ||
-    null;
-  const authz =
-    req.headers['x-forwarded-authorization'] ||
-    req.headers['authorization'] ||
-    null;
-  const bearerFromAuthz =
-    typeof authz === 'string' && authz.toLowerCase().startsWith('bearer ')
-      ? authz.slice(7).trim()
-      : null;
-  const token =
-    req.headers['x-forwarded-access-token'] ||
-    req.headers['x-databricks-oauth-token'] ||
-    req.headers['x-databricks-token'] ||
-    bearerFromAuthz ||
-    null;
-
+// Health check (requires auth so we can reliably test Lakebase using the user's proxy token)
+app.get('/api/health', authMiddleware, async (req, res) => {
   const dbHealth = await lakebase
-    .healthCheck({ userEmail, token })
+    .healthCheck({ userEmail: req.user?.email, token: req.userToken })
     .catch(() => ({ status: 'not configured' }));
-  res.json({ 
-    status: 'healthy', 
+  res.json({
+    status: 'healthy',
     timestamp: new Date().toISOString(),
     database: dbHealth,
     env: {
       hasHost: !!process.env.DATABRICKS_HOST,
-      hasToken: !!process.env.DATABRICKS_TOKEN,
       nodeEnv: process.env.NODE_ENV
     }
   });
