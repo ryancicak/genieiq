@@ -217,7 +217,7 @@ function SpaceSelector({ user, health }) {
                 <br />
                 <br />
                 First-time deploy: run <strong>./deploy.sh</strong> to provision/connect Lakebase (or use <strong>scripts/Deploy_GenieIQ.command</strong> on macOS).
-                {typeof health?.database?.error === 'string' && health.database.error.includes('does not exist') && (
+                {Array.isArray(health?.database?.failures) && health.database.failures.some((f) => String(f?.error || '').includes('role') && String(f?.error || '').includes('does not exist')) && (
                   <>
                     <br />
                     <br />

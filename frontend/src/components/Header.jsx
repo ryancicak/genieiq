@@ -5,7 +5,8 @@ function Header({ user, health }) {
   const location = useLocation();
   const isAdmin = location.pathname === '/admin';
   const db = health?.database;
-  const dbMode = db?.mode || (db?.status === 'healthy' && db?.host ? 'lakebase' : null);
+  const dbHealthy = db?.status === 'healthy';
+  const dbMode = db?.mode || (dbHealthy && db?.host ? 'lakebase' : null);
   const dbLabel =
     dbMode === 'lakebase' ? 'Lakebase' :
     dbMode === 'in-memory' ? 'In-memory' :
@@ -44,12 +45,12 @@ function Header({ user, health }) {
         <div className="header-right">
           {user?.isAdmin && dbLabel && (
             <div
-              className={`storage-pill ${dbMode === 'lakebase' ? 'ok' : 'warn'}`}
+              className={`storage-pill ${dbMode === 'lakebase' && dbHealthy ? 'ok' : 'warn'}`}
               title={dbMode === 'lakebase'
-                ? `Storage: Lakebase${db?.host ? ` (${db.host})` : ''}`
+                ? `Storage: Lakebase${db?.host ? ` (${db.host})` : ''}${dbHealthy ? '' : (db?.error ? ` — ${db.error}` : ' — unavailable')}`
                 : 'Storage: In-memory (history resets if the app restarts)'}
             >
-              Storage: {dbLabel}
+              Storage: {dbMode === 'lakebase' && !dbHealthy ? 'Lakebase (unavailable)' : dbLabel}
             </div>
           )}
           {user?.isAdmin && (

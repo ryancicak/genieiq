@@ -11,6 +11,7 @@ const crypto = require('crypto');
 
 let pool = null;
 let useInMemory = false;
+let lastLakebaseFailures = null;
 let inMemoryStore = {
   audit_results: [],
   space_stars: [], // { space_id, user_email, starred_at }
@@ -624,6 +625,7 @@ async function getPool({ userEmail = null, token = null } = {}) {
 
     const attempt = await tryCreatePool({ host, database, user, token: c.token });
     if (attempt?.pool) {
+      lastLakebaseFailures = null;
       console.log(`🔌 Connecting to Lakebase: ${host}:${process.env.LAKEBASE_PORT || '5432'}/${database} as ${c.kind === 'request' ? 'user' : 'env-user'} (${c.kind})`);
       return attempt.pool;
     }
@@ -636,6 +638,7 @@ async function getPool({ userEmail = null, token = null } = {}) {
       user: f.user,
       error: String(f.error).slice(0, 180)
     }));
+    lastLakebaseFailures = summarized;
     console.warn('⚠️ Lakebase connection failed for all credential candidates:', summarized);
   }
   return null;
@@ -933,12 +936,24 @@ async function healthCheck({ userEmail = null, token = null } = {}) {
   try {
     const dbPool = await getPool({ userEmail, token });
     if (!dbPool) {
-      return { status: 'unhealthy', mode: 'lakebase', host: process.env.LAKEBASE_HOST, error: 'No valid Lakebase credentials (see server logs)' };
+      return {
+        status: 'unhealthy',
+        mode: 'lakebase',
+        host: process.env.LAKEBASE_HOST,
+        error: 'Lakebase login failed',
+        failures: lastLakebaseFailures || []
+      };
     }
     await dbPool.query('SELECT 1');
     return { status: 'healthy', mode: 'lakebase', host: process.env.LAKEBASE_HOST };
   } catch (error) {
-    return { status: 'unhealthy', error: error.message };
+    return {
+      status: 'unhealthy',
+      mode: 'lakebase',
+      host: process.env.LAKEBASE_HOST,
+      error: error.message,
+      failures: lastLakebaseFailures || []
+    };
   }
 }
 
