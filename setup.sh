@@ -88,8 +88,22 @@ echo "If you want history/starred/new-spaces to persist locally, fill these in."
 echo "If you skip, GenieIQ still runs (in-memory storage)."
 
 prompt "Lakebase host (from the Lakebase instance connection string)" "LAKEBASE_HOST" "instance-xxxxx.database.cloud.databricks.com"
-echo -e "${YELLOW}Note:${NC} The Lakebase Postgres database name is usually ${BOLD}databricks_postgres${NC} (from the psql connection string: dbname=...)."
-prompt "Lakebase database name" "LAKEBASE_DATABASE" "databricks_postgres"
+
+# Most Lakebase instances use the default dbname `databricks_postgres`. Set it automatically to reduce confusion.
+CURRENT_LAKEBASE_HOST="$(grep -E '^LAKEBASE_HOST=' "$ENV_FILE" | tail -1 | cut -d'=' -f2- | tr -d '\"' || true)"
+CURRENT_LAKEBASE_DB="$(grep -E '^LAKEBASE_DATABASE=' "$ENV_FILE" | tail -1 | cut -d'=' -f2- | tr -d '\"' || true)"
+if [ -n "${CURRENT_LAKEBASE_HOST:-}" ] && [ -z "${CURRENT_LAKEBASE_DB:-}" ]; then
+  backup_env
+  set_kv "LAKEBASE_DATABASE" "databricks_postgres"
+fi
+
+echo ""
+echo -e "${YELLOW}Note:${NC} Lakebase Postgres usually uses the default dbname ${BOLD}databricks_postgres${NC}."
+read -r -p "Advanced: override LAKEBASE_DATABASE? [y/N]: " OVERRIDE_DB
+OVERRIDE_DB="${OVERRIDE_DB:-N}"
+if [[ "$OVERRIDE_DB" =~ ^[Yy]$ ]]; then
+  prompt "Lakebase database name (from psql: dbname=...)" "LAKEBASE_DATABASE" "databricks_postgres"
+fi
 prompt "Your Databricks user email (used as the Postgres username)" "DATABRICKS_USER" "ryan.cicak@databricks.com"
 
 echo ""
