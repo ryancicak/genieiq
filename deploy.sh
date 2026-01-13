@@ -33,6 +33,15 @@ dbx() {
   "$DBX_BIN" --profile "$PROFILE" "$@"
 }
 
+dotenv_get() {
+  # Best-effort: read a value from .env without exporting everything.
+  # Usage: dotenv_get KEY
+  local key="$1"
+  if [ -f "$SCRIPT_DIR/.env" ]; then
+    grep -E "^${key}=" "$SCRIPT_DIR/.env" | tail -1 | cut -d'=' -f2- | tr -d '"' || true
+  fi
+}
+
 json_value() {
   # Reads mixed output from stdin, extracts the first JSON object, then prints a field.
   # Usage: json_value '<python_expr_using_obj>'
@@ -175,6 +184,13 @@ INSTANCE_JSON=""
 if [ "$SKIP_LAKEBASE" = "1" ]; then
     echo -e "${YELLOW}  ! SKIP_LAKEBASE=1 set - deploying without Lakebase (in-memory storage).${NC}"
 else
+    # If setup.sh created .env with Lakebase connection details, reuse them automatically.
+    # This is the common case when Lakebase instance provisioning is blocked by quota/permissions.
+    if [ -z "${EXISTING_LAKEBASE_HOST:-}" ]; then
+      EXISTING_LAKEBASE_HOST="$(dotenv_get LAKEBASE_HOST)"
+      EXISTING_LAKEBASE_DATABASE="$(dotenv_get LAKEBASE_DATABASE)"
+    fi
+
     # If the caller already knows the Lakebase connection details (common when instance quota is hit),
     # use them directly and skip provisioning via the Databricks database APIs.
     if [ -n "${EXISTING_LAKEBASE_HOST:-}" ]; then
@@ -364,8 +380,7 @@ fi
 echo -e "${GREEN}  ✓ App deployed${NC}"
 
 # Get app URL
-APP_INFO=$(databricks apps get "$APP_NAME" --output json 2>/dev/null)
-APP_URL=$(echo "$APP_INFO" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4)
+APP_URL="$(dbx apps get "$APP_NAME" --output json 2>/dev/null | json_value 'obj.get("url")')"
 
 if [ -z "$APP_URL" ]; then
     APP_URL="${WORKSPACE_HOST}/apps/${APP_NAME}"
@@ -377,19 +392,25 @@ echo ""
 echo -e "  ${GREEN}${BOLD}🎉 GenieIQ is live!${NC}"
 echo ""
 echo -e "  ${BOLD}App URL:${NC}      ${APP_URL}"
-echo -e "  ${BOLD}Lakebase:${NC}     ${LAKEBASE_INSTANCE}"
-echo -e "  ${BOLD}Database:${NC}     PostgreSQL 16 @ ${LAKEBASE_HOST}"
+if [ -n "${LAKEBASE_HOST}" ]; then
+  echo -e "  ${BOLD}Lakebase:${NC}     ${LAKEBASE_INSTANCE}"
+  echo -e "  ${BOLD}Database:${NC}     ${LAKEBASE_DATABASE_NAME} @ ${LAKEBASE_HOST}"
+else
+  echo -e "  ${BOLD}Lakebase:${NC}     not configured (in-memory)"
+fi
 echo ""
 echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
 echo ""
 
-# Offer to open in browser
-read -p "Open in browser? [Y/n] " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-    if command -v open &> /dev/null; then
-        open "$APP_URL"
-    elif command -v xdg-open &> /dev/null; then
-        xdg-open "$APP_URL"
-    fi
+# Offer to open in browser (interactive only)
+if [ -t 0 ]; then
+  read -p "Open in browser? [Y/n] " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+      if command -v open &> /dev/null; then
+          open "$APP_URL"
+      elif command -v xdg-open &> /dev/null; then
+          xdg-open "$APP_URL"
+      fi
+  fi
 fi
