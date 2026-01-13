@@ -282,7 +282,31 @@ mkdir -p "$DEPLOY_DIR/frontend/dist"
 # Use a dedicated deploy package manifest that won't trigger frontend builds in Databricks Apps
 cp package-deploy.json "$DEPLOY_DIR/package.json"
 cp package-lock.json "$DEPLOY_DIR/" 2>/dev/null || true
-cp app.yaml "$DEPLOY_DIR/"
+# Generate app.yaml in the deploy bundle so env vars are baked in (Databricks CLI `apps deploy` does not accept --env).
+cat > "$DEPLOY_DIR/app.yaml" <<YAML
+command:
+  - "node"
+  - "backend/server.js"
+
+env:
+  - name: NODE_ENV
+    value: production
+  - name: ADMIN_EMAILS
+    value: "${USER_EMAIL}"
+YAML
+
+if [ -n "${LAKEBASE_HOST}" ]; then
+  cat >> "$DEPLOY_DIR/app.yaml" <<YAML
+  - name: LAKEBASE_HOST
+    value: "${LAKEBASE_HOST}"
+  - name: LAKEBASE_DATABASE
+    value: "${LAKEBASE_DATABASE_NAME:-databricks_postgres}"
+  - name: LAKEBASE_INSTANCE
+    value: "${LAKEBASE_INSTANCE}"
+  - name: DATABRICKS_USER
+    value: "${USER_EMAIL}"
+YAML
+fi
 
 # Install production dependencies in deploy dir
 cd "$DEPLOY_DIR"
@@ -308,33 +332,21 @@ dbx workspace import-dir "$DEPLOY_DIR" "$WORKSPACE_DEPLOY_PATH" --overwrite
 
 echo -e "${GREEN}  ✓ Files uploaded${NC}"
 
-# Deploy/Update the app with environment variables
-echo "  Deploying app with Lakebase configuration..."
-
-# Build env args (Lakebase is optional)
-ENV_ARGS=(--env "NODE_ENV=production")
-if [ -n "${LAKEBASE_HOST}" ]; then
-    ENV_ARGS+=(--env "LAKEBASE_HOST=$LAKEBASE_HOST")
-    # Lakebase provisioned Postgres default database name is typically `databricks_postgres`.
-    ENV_ARGS+=(--env "LAKEBASE_DATABASE=${LAKEBASE_DATABASE_NAME:-databricks_postgres}")
-    ENV_ARGS+=(--env "LAKEBASE_INSTANCE=$LAKEBASE_INSTANCE")
-    ENV_ARGS+=(--env "DATABRICKS_USER=$USER_EMAIL")
-fi
+# Deploy/Update the app (env is defined in app.yaml in the uploaded source)
+echo "  Deploying app..."
 
 # Check if app exists
 if dbx apps get "$APP_NAME" &> /dev/null; then
     # Update existing app
     dbx apps deploy "$APP_NAME" \
-        --source-code-path "$WORKSPACE_DEPLOY_PATH" \
-        "${ENV_ARGS[@]}"
+        --source-code-path "$WORKSPACE_DEPLOY_PATH"
 else
     # Create new app
     dbx apps create "$APP_NAME" \
-        --description "GenieIQ - For Better Answers" 
+        --description "GenieIQ - For Better Answers"
     
     dbx apps deploy "$APP_NAME" \
-        --source-code-path "$WORKSPACE_DEPLOY_PATH" \
-        "${ENV_ARGS[@]}"
+        --source-code-path "$WORKSPACE_DEPLOY_PATH"
 fi
 
 # Keep the deploy bundle on disk (under .tmp/) so your local folder is fully self-contained.
