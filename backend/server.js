@@ -20,11 +20,21 @@ const app = express();
 const PORT = process.env.DATABRICKS_APP_PORT || process.env.PORT || 3001;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
+// API responses should never be cached in the browser/proxies (prevents “blank UI” after deploys).
+app.set('etag', false);
+
 // Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(morgan('combined'));
 app.use(express.json());
+
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
 // API Routes
 app.use('/api/auth', authRoutes);

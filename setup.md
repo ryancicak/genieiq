@@ -20,6 +20,23 @@ macOS (Finder): double‑click `scripts/Setup_GenieIQ.command`.
 
 The script writes to `.env` (which is **gitignored**).
 
+## If you are deploying GenieIQ as a Databricks App (first-time deploy)
+
+For customer-style installs (not local dev), the fastest path is:
+
+```bash
+./deploy.sh
+```
+
+`./deploy.sh` will:
+
+- Build the frontend
+- Upload the runtime bundle to the Workspace
+- Deploy the Databricks App
+- Try to **create/connect** a Lakebase instance (`genieiq-db`) so history persists
+
+If Lakebase isn’t enabled (or you don’t have permissions), GenieIQ still deploys and runs, but history will be in-memory until Lakebase is restored.
+
 ## 2) Get the Lakebase OAuth token (PGPASSWORD)
 
 This is the key step that makes local Lakebase persistence “just work”.

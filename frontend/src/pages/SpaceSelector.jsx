@@ -213,7 +213,10 @@ function SpaceSelector({ user, health }) {
             <div>
               <div className="alert-title">Lakebase history is unavailable</div>
               <div className="alert-body">
-                Your Lakebase database was deleted or is unreachable. You can still use GenieIQ via “All spaces”, but scores/history won’t persist until Lakebase is restored.
+                Your Lakebase database is missing or unreachable. You can still use GenieIQ via “All spaces”, but scores/history won’t persist until Lakebase is restored.
+                <br />
+                <br />
+                First-time deploy: run <strong>./deploy.sh</strong> to provision/connect Lakebase (or use <strong>scripts/Deploy_GenieIQ.command</strong> on macOS).
               </div>
             </div>
             <div className="alert-actions">

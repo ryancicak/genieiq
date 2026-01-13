@@ -216,8 +216,10 @@ echo "  Deploying app with Lakebase configuration..."
 ENV_ARGS=(--env "NODE_ENV=production")
 if [ -n "${LAKEBASE_HOST}" ]; then
     ENV_ARGS+=(--env "LAKEBASE_HOST=$LAKEBASE_HOST")
-    ENV_ARGS+=(--env "LAKEBASE_DATABASE=genieiq")
+    # Lakebase provisioned Postgres default database name is typically `databricks_postgres`.
+    ENV_ARGS+=(--env "LAKEBASE_DATABASE=databricks_postgres")
     ENV_ARGS+=(--env "LAKEBASE_INSTANCE=$LAKEBASE_INSTANCE")
+    ENV_ARGS+=(--env "DATABRICKS_USER=$USER_EMAIL")
 fi
 
 # Check if app exists

@@ -63,6 +63,7 @@ The app will be available at `http://localhost:5173` (frontend) with the API at 
 Notes:
 - The deploy bundle is saved under `./.tmp/deploy-bundles/` so **everything stays inside this repo folder**.
 - The deploy bundle uses `package-deploy.json` (copied as `package.json`) to avoid Databricks Apps trying to run a frontend build at deploy time.
+- **First-time deploy**: `./deploy.sh` will try to **create/connect** a Lakebase instance (`genieiq-db`) and wire the app env vars. If it can’t (permissions / feature not enabled), GenieIQ still deploys and runs but history is in-memory.
 
 ### Deploy to a Different Workspace (easy)
 
@@ -98,6 +99,11 @@ export SKIP_LAKEBASE=1
   - `space_stars` (per-user starred spaces)
   - `spaces_seen` (first-seen/last-seen registry powering “New spaces”)
 - For manual setup / review, see `sql/setup_lakebase.sql` (kept in this repo for portability).
+
+#### What users will see if Lakebase is missing
+
+- The app will show a **Lakebase unavailable** banner and default to **All spaces** so the UI is never blank.
+- Once Lakebase is restored, run **Scan All (safe)** or scan a few spaces to repopulate history.
 
 ### One-click Local Backup (macOS)
 
