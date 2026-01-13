@@ -20,6 +20,8 @@ macOS (Finder): double‑click `scripts/Setup_GenieIQ.command`.
 
 The script writes to `.env` (which is **gitignored**).
 
+At the end, the setup helper can also **deploy GenieIQ as a Databricks App** by running `./deploy.sh` for you.
+
 ## If you are deploying GenieIQ as a Databricks App (first-time deploy)
 
 For customer-style installs (not local dev), the fastest path is:

@@ -64,10 +64,27 @@ echo -e "${GREEN}  ✓ Node.js $(node --version)${NC}"
 echo ""
 echo -e "${BOLD}[2/7] Checking Databricks authentication...${NC}"
 
+DESIRED_HOST="${TARGET_DATABRICKS_HOST:-}"
+DESIRED_HOST="${DESIRED_HOST%/}"
+
+CURRENT_HOST="$(databricks auth describe --output json 2>/dev/null | grep -o '\"host\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4 || true)"
+CURRENT_HOST="${CURRENT_HOST%/}"
+
+if [ -n "${DESIRED_HOST}" ] && [ -n "${CURRENT_HOST}" ] && [ "${CURRENT_HOST}" != "${DESIRED_HOST}" ]; then
+    echo -e "${YELLOW}  ! Databricks CLI is authenticated to a different workspace:${NC}"
+    echo -e "${YELLOW}    current: ${CURRENT_HOST}${NC}"
+    echo -e "${YELLOW}    desired: ${DESIRED_HOST}${NC}"
+    echo "  Re-authenticating to the desired workspace..."
+    databricks auth login --host "${DESIRED_HOST}"
+fi
+
 if ! databricks current-user me &> /dev/null; then
     echo -e "${YELLOW}  ! Not authenticated${NC}"
-    read -p "  Enter your Databricks workspace URL: " WORKSPACE_URL
-    WORKSPACE_URL="${WORKSPACE_URL%/}"
+    WORKSPACE_URL="${DESIRED_HOST}"
+    if [ -z "${WORKSPACE_URL}" ]; then
+        read -p "  Enter your Databricks workspace URL: " WORKSPACE_URL
+        WORKSPACE_URL="${WORKSPACE_URL%/}"
+    fi
     databricks auth login --host "$WORKSPACE_URL"
 fi
 

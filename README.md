@@ -32,6 +32,8 @@ Run the setup helper and follow the prompts (creates/updates `.env`):
 
 macOS (Finder): double-click `scripts/Setup_GenieIQ.command`.
 
+At the end, `setup.sh` can also **deploy GenieIQ as a Databricks App** by running `./deploy.sh` for you.
+
 **Lakebase (local) token note**: Lakebase Postgres typically needs an **OAuth token** (1 hour lifetime) as the password, not a PAT. The setup script will ask you to paste it into `LAKEBASE_TOKEN` (stored only in your local `.env`, which is gitignored).
 
 Full walkthrough (2 minutes): see `setup.md`.

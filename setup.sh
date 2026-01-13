@@ -88,6 +88,7 @@ echo "If you want history/starred/new-spaces to persist locally, fill these in."
 echo "If you skip, GenieIQ still runs (in-memory storage)."
 
 prompt "Lakebase host (from the Lakebase instance connection string)" "LAKEBASE_HOST" "instance-xxxxx.database.cloud.databricks.com"
+echo -e "${YELLOW}Note:${NC} The Lakebase Postgres database name is usually ${BOLD}databricks_postgres${NC} (from the psql connection string: dbname=...)."
 prompt "Lakebase database name" "LAKEBASE_DATABASE" "databricks_postgres"
 prompt "Your Databricks user email (used as the Postgres username)" "DATABRICKS_USER" "ryan.cicak@databricks.com"
 
@@ -102,9 +103,44 @@ prompt "Paste Lakebase OAuth token (1 hour lifetime)" "LAKEBASE_TOKEN" "eyJraWQi
 echo ""
 echo -e "${GREEN}✓ Setup complete${NC}"
 echo ""
-echo "Next:"
+echo "Next (local dev):"
 echo "  1) Install deps:   npm run install:all"
 echo "  2) Run locally:    npm run dev"
 echo ""
 echo "Tip: If Lakebase auth fails, your LAKEBASE_TOKEN likely expired. Paste a fresh one and retry."
 echo ""
+
+# ----------------------------------------------------------------------------
+# Optional: Deploy as a Databricks App (customer-first default)
+# ----------------------------------------------------------------------------
+echo -e "${BOLD}Optional - Deploy GenieIQ as a Databricks App${NC}"
+echo "This will run ./deploy.sh and deploy GenieIQ into the workspace you entered above."
+echo "It may open a browser for Databricks CLI auth if you are not already authenticated."
+echo ""
+read -r -p "Deploy now? [Y/n]: " DO_DEPLOY
+DO_DEPLOY="${DO_DEPLOY:-Y}"
+
+if [[ "$DO_DEPLOY" =~ ^[Yy]$ ]]; then
+  if ! command -v databricks &> /dev/null; then
+    echo -e "${RED}✗ Databricks CLI not found. Install it first:${NC}"
+    echo "  brew install databricks/tap/databricks"
+    exit 1
+  fi
+
+  # Read DATABRICKS_HOST from .env to ensure we use the final value (kept/updated).
+  DBX_HOST="$(grep -E '^DATABRICKS_HOST=' "$ENV_FILE" | tail -1 | cut -d'=' -f2- | tr -d '"' || true)"
+  if [ -z "${DBX_HOST:-}" ]; then
+    echo -e "${RED}✗ Missing DATABRICKS_HOST in .env${NC}"
+    exit 1
+  fi
+  # Normalize: remove trailing slash
+  DBX_HOST="${DBX_HOST%/}"
+
+  echo ""
+  echo -e "${GREEN}→ Deploying to ${DBX_HOST}${NC}"
+  echo ""
+  TARGET_DATABRICKS_HOST="$DBX_HOST" ./deploy.sh
+else
+  echo "Skipped deploy."
+  echo "To deploy later: ./deploy.sh"
+fi
