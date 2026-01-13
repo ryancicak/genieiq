@@ -169,7 +169,12 @@ router.get('/all', async (req, res) => {
     });
 
     const starIds = out.map((s) => String(s.id)).filter(Boolean);
-    const starMap = await lakebase.getStarMapForSpaceIds({ spaceIds: starIds, userEmail: req.user?.email, token: req.userToken });
+    let starMap = new Map();
+    try {
+      starMap = await lakebase.getStarMapForSpaceIds({ spaceIds: starIds, userEmail: req.user?.email, token: req.userToken });
+    } catch {
+      starMap = new Map();
+    }
     for (const s of out) {
       s.starred = starMap.get(String(s.id)) || false;
     }
@@ -218,7 +223,12 @@ router.get('/new', async (req, res) => {
       latestById.set(String(sid), r);
     }
 
-    const starMap = await lakebase.getStarMapForSpaceIds({ spaceIds: ids, userEmail: req.user?.email, token: req.userToken });
+    let starMap = new Map();
+    try {
+      starMap = await lakebase.getStarMapForSpaceIds({ spaceIds: ids, userEmail: req.user?.email, token: req.userToken });
+    } catch {
+      starMap = new Map();
+    }
 
     const spaces = (rows || []).map((r) => {
       const sid = String(r.space_id);

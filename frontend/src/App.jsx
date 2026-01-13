@@ -52,7 +52,7 @@ function App() {
       <Header user={user} health={health} />
       <main className="main">
         <Routes>
-          <Route path="/" element={<SpaceSelector user={user} />} />
+          <Route path="/" element={<SpaceSelector user={user} health={health} />} />
           <Route path="/space/:id" element={<SpaceDetail />} />
           <Route path="/admin" element={
             user?.isAdmin ? <AdminDashboard /> : <Navigate to="/" replace />

@@ -270,9 +270,14 @@ async function upsertSpacesSeen({ spaces = [], userEmail = null, token = null } 
     return { count: list.length };
   }
 
-  const dbPool = await getPool({ userEmail, token });
-  if (!dbPool) return { count: 0 };
-  await ensureSchema(dbPool);
+  let dbPool = null;
+  try {
+    dbPool = await getPool({ userEmail, token });
+    if (!dbPool) return { count: 0 };
+    await ensureSchema(dbPool);
+  } catch {
+    return { count: 0 };
+  }
 
   const values = [];
   const params = [];
@@ -282,17 +287,21 @@ async function upsertSpacesSeen({ spaces = [], userEmail = null, token = null } 
     params.push(s.id, s.name || null);
   }
 
-  await dbPool.query(
-    `
-    INSERT INTO spaces_seen(space_id, last_name)
-    VALUES ${values.join(',')}
-    ON CONFLICT (space_id)
-    DO UPDATE SET
-      last_seen_at = CURRENT_TIMESTAMP,
-      last_name = COALESCE(EXCLUDED.last_name, spaces_seen.last_name)
-    `,
-    params
-  );
+  try {
+    await dbPool.query(
+      `
+      INSERT INTO spaces_seen(space_id, last_name)
+      VALUES ${values.join(',')}
+      ON CONFLICT (space_id)
+      DO UPDATE SET
+        last_seen_at = CURRENT_TIMESTAMP,
+        last_name = COALESCE(EXCLUDED.last_name, spaces_seen.last_name)
+      `,
+      params
+    );
+  } catch {
+    return { count: 0 };
+  }
 
   return { count: list.length };
 }
@@ -306,14 +315,18 @@ async function getSpacesSeenByIds({ spaceIds = [], userEmail = null, token = nul
     return (inMemoryStore.spaces_seen || []).filter((r) => set.has(String(r.space_id)));
   }
 
-  const dbPool = await getPool({ userEmail, token });
-  if (!dbPool) return [];
-  await ensureSchema(dbPool);
-  const res = await dbPool.query(
-    `SELECT space_id, first_seen_at, last_seen_at, last_name FROM spaces_seen WHERE space_id = ANY($1::text[])`,
-    [ids]
-  );
-  return res.rows || [];
+  try {
+    const dbPool = await getPool({ userEmail, token });
+    if (!dbPool) return [];
+    await ensureSchema(dbPool);
+    const res = await dbPool.query(
+      `SELECT space_id, first_seen_at, last_seen_at, last_name FROM spaces_seen WHERE space_id = ANY($1::text[])`,
+      [ids]
+    );
+    return res.rows || [];
+  } catch {
+    return [];
+  }
 }
 
 async function getNewSpaces({ days = 7, limit = 10, userEmail = null, token = null } = {}) {
@@ -328,21 +341,25 @@ async function getNewSpaces({ days = 7, limit = 10, userEmail = null, token = nu
       .slice(0, lim);
   }
 
-  const dbPool = await getPool({ userEmail, token });
-  if (!dbPool) return [];
-  await ensureSchema(dbPool);
-  const cutoff = new Date(Date.now() - d * 24 * 60 * 60 * 1000).toISOString();
-  const res = await dbPool.query(
-    `
-    SELECT space_id, first_seen_at, last_seen_at, last_name
-    FROM spaces_seen
-    WHERE first_seen_at >= $1::timestamptz
-    ORDER BY first_seen_at DESC
-    LIMIT $2
-    `,
-    [cutoff, lim]
-  );
-  return res.rows || [];
+  try {
+    const dbPool = await getPool({ userEmail, token });
+    if (!dbPool) return [];
+    await ensureSchema(dbPool);
+    const cutoff = new Date(Date.now() - d * 24 * 60 * 60 * 1000).toISOString();
+    const res = await dbPool.query(
+      `
+      SELECT space_id, first_seen_at, last_seen_at, last_name
+      FROM spaces_seen
+      WHERE first_seen_at >= $1::timestamptz
+      ORDER BY first_seen_at DESC
+      LIMIT $2
+      `,
+      [cutoff, lim]
+    );
+    return res.rows || [];
+  } catch {
+    return [];
+  }
 }
 
 async function setSpaceStar({ spaceId, userEmail, token, starred }) {
@@ -362,8 +379,24 @@ async function setSpaceStar({ spaceId, userEmail, token, starred }) {
     return { spaceId: sid, starred: on };
   }
 
-  const dbPool = await getPool({ userEmail, token });
-  await ensureSchema(dbPool);
+  let dbPool = null;
+  try {
+    dbPool = await getPool({ userEmail, token });
+    if (!dbPool) throw new Error('Lakebase unavailable');
+    await ensureSchema(dbPool);
+  } catch {
+    // best-effort: fall back to in-memory behavior (non-persistent)
+    const sid = String(spaceId);
+    const on2 = Boolean(starred);
+    const me = String(userEmail).toLowerCase();
+    inMemoryStore.space_stars = (inMemoryStore.space_stars || []).filter(
+      (r) => !(String(r.space_id) === sid && String(r.user_email).toLowerCase() === me)
+    );
+    if (on2) {
+      inMemoryStore.space_stars.push({ space_id: sid, user_email: userEmail, starred_at: new Date().toISOString() });
+    }
+    return { spaceId: sid, starred: on2 };
+  }
   if (on) {
     await dbPool.query(
       `INSERT INTO space_stars(space_id, user_email) VALUES ($1, $2)
@@ -396,17 +429,21 @@ async function getStarMapForSpaceIds({ spaceIds = [], userEmail = null, token = 
     return map;
   }
 
-  const dbPool = await getPool({ userEmail, token });
-  if (!dbPool) return new Map();
-  await ensureSchema(dbPool);
-  const res = await dbPool.query(
-    `SELECT space_id FROM space_stars WHERE user_email = $1 AND space_id = ANY($2::text[])`,
-    [String(userEmail), ids]
-  );
-  const set = new Set((res.rows || []).map((r) => String(r.space_id)));
-  const map = new Map();
-  for (const id of ids) map.set(id, set.has(id));
-  return map;
+  try {
+    const dbPool = await getPool({ userEmail, token });
+    if (!dbPool) return new Map();
+    await ensureSchema(dbPool);
+    const res = await dbPool.query(
+      `SELECT space_id FROM space_stars WHERE user_email = $1 AND space_id = ANY($2::text[])`,
+      [String(userEmail), ids]
+    );
+    const set = new Set((res.rows || []).map((r) => String(r.space_id)));
+    const map = new Map();
+    for (const id of ids) map.set(id, set.has(id));
+    return map;
+  } catch {
+    return new Map();
+  }
 }
 
 /**
@@ -419,11 +456,11 @@ async function getOAuthToken() {
     return process.env.LAKEBASE_TOKEN;
   }
 
-  // In Databricks Apps, DATABRICKS_TOKEN may be injected, but it might not be valid for DB auth.
-  // Only accept it if it has the required scope.
+  // In Databricks Apps, DATABRICKS_TOKEN may be injected.
+  // Even if its `scope` claim doesn't include "database", it can still be valid for
+  // Databricks identity login to Lakebase, so accept it as a candidate.
   if (process.env.DATABRICKS_TOKEN) {
-    const c = decodeJwtClaims(process.env.DATABRICKS_TOKEN);
-    if (tokenHasDbScope(c)) return process.env.DATABRICKS_TOKEN;
+    return process.env.DATABRICKS_TOKEN;
   }
 
   // In Databricks Apps, prefer service-principal client-credentials token if configured.
@@ -478,6 +515,43 @@ async function getOAuthToken() {
   return null;
 }
 
+async function tryCreatePool({ host, database, user, token }) {
+  if (!host || !database || !user || !token) return null;
+
+  const claims = decodeJwtClaims(token);
+  const expMs = claims?.exp ? (Number(claims.exp) * 1000) : null;
+  const expiry = expMs ? expMs : (Date.now() + 55 * 60 * 1000);
+  const cacheKey = `${user}::${database}::${hashToken(token) || 'tok'}`;
+
+  const cached = poolCache.get(cacheKey);
+  if (cached?.pool && Date.now() < cached.expiry - 60_000) {
+    return cached.pool;
+  }
+
+  const config = {
+    host,
+    port: parseInt(process.env.LAKEBASE_PORT || '5432'),
+    database,
+    user,
+    password: token,
+    ssl: { rejectUnauthorized: false },
+    max: 10,
+    connectionTimeoutMillis: 10_000
+  };
+
+  const p = new Pool(config);
+  try {
+    // Validate auth once per token/user combo (then cached).
+    await p.query('SELECT 1');
+    p.on('error', (err) => console.error('Lakebase pool error:', err.message));
+    poolCache.set(cacheKey, { pool: p, expiry });
+    return p;
+  } catch {
+    try { await p.end(); } catch {}
+    return null;
+  }
+}
+
 /**
  * Get or create a connection pool
  */
@@ -494,69 +568,65 @@ async function getPool({ userEmail = null, token = null } = {}) {
     return null;
   }
 
-  // Only use the request token if it has DB scope. Otherwise fetch a DB-scoped token.
-  let effectiveToken = null;
-  let effectiveClaims = null;
-  let effectiveUser = null;
+  const database = process.env.LAKEBASE_DATABASE || 'postgres';
 
-  if (token) {
-    const c = decodeJwtClaims(token);
-    if (tokenHasDbScope(c)) {
-      effectiveToken = token;
-      effectiveClaims = c;
-      // Only trust userEmail if it matches token identity; otherwise use token identity.
-      const ident = identityFromClaims(c);
-      effectiveUser = (userEmail && ident && String(userEmail).toLowerCase() === String(ident).toLowerCase())
-        ? userEmail
-        : (ident || userEmail || null);
+  const candidates = [];
+  if (token) candidates.push({ token, kind: 'request' });
+  if (process.env.LAKEBASE_TOKEN) candidates.push({ token: process.env.LAKEBASE_TOKEN, kind: 'lakebase_env' });
+  if (process.env.DATABRICKS_TOKEN) candidates.push({ token: process.env.DATABRICKS_TOKEN, kind: 'databricks_env' });
+
+  // Add service-principal DB-scoped tokens as last resort.
+  // (Some workspaces require a DB-scoped token; others accept standard app/session tokens.)
+  try {
+    const clientId = process.env.DATABRICKS_CLIENT_ID;
+    const clientSecret = process.env.DATABRICKS_CLIENT_SECRET;
+    const hostEnv = process.env.DATABRICKS_HOST;
+    if (clientId && clientSecret && hostEnv) {
+      const baseUrl = hostEnv.startsWith('http') ? hostEnv : `https://${hostEnv}`;
+      const tokenUrl = `${baseUrl}/oidc/v1/token`;
+      for (const scope of ['database', 'lakebase']) {
+        const response = await fetch(tokenUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            grant_type: 'client_credentials',
+            client_id: clientId,
+            client_secret: clientSecret,
+            scope
+          })
+        });
+        if (response.ok) {
+          const data = await response.json().catch(() => ({}));
+          if (data?.access_token) candidates.push({ token: data.access_token, kind: `sp:${scope}` });
+        }
+      }
     }
+  } catch {
+    // ignore
   }
 
-  if (!effectiveToken && process.env.LAKEBASE_TOKEN) {
-    effectiveToken = process.env.LAKEBASE_TOKEN;
-    effectiveClaims = decodeJwtClaims(effectiveToken);
-    effectiveUser = userEmail || process.env.DATABRICKS_USER || process.env.USER_EMAIL || identityFromClaims(effectiveClaims) || null;
-  }
-
-  if (!effectiveToken) {
-    effectiveToken = await getOAuthToken();
-    effectiveClaims = decodeJwtClaims(effectiveToken);
-    effectiveUser = identityFromClaims(effectiveClaims) || userEmail || process.env.DATABRICKS_USER || process.env.USER_EMAIL || null;
-  }
-    
-  if (!effectiveToken) {
+  if (candidates.length === 0) {
     console.warn('⚠️ No Databricks token found. Using In-Memory Storage.');
     return null;
   }
 
-  const user = effectiveUser || 'databricks_user';
+  for (const c of candidates) {
+    const claims = decodeJwtClaims(c.token);
+    const ident = identityFromClaims(claims);
+    const user =
+      (c.kind === 'request'
+        ? (userEmail || process.env.DATABRICKS_USER || ident)
+        : (ident || userEmail || process.env.DATABRICKS_USER || process.env.USER_EMAIL)) ||
+      'databricks_user';
 
-  const claims = effectiveClaims || decodeJwtClaims(effectiveToken);
-  const expMs = claims?.exp ? (Number(claims.exp) * 1000) : null;
-  const expiry = expMs ? expMs : (Date.now() + 55 * 60 * 1000);
-  const cacheKey = `${user}::${process.env.LAKEBASE_DATABASE || 'postgres'}::${hashToken(effectiveToken) || 'tok'}`;
-
-  const cached = poolCache.get(cacheKey);
-  if (cached?.pool && Date.now() < cached.expiry - 60_000) {
-    return cached.pool;
+    const p = await tryCreatePool({ host, database, user, token: c.token });
+    if (p) {
+      console.log(`🔌 Connecting to Lakebase: ${host}:${process.env.LAKEBASE_PORT || '5432'}/${database} as ${c.kind === 'request' ? 'user' : 'env-user'} (${c.kind})`);
+      return p;
+    }
   }
 
-  const config = {
-    host: host,
-    port: parseInt(process.env.LAKEBASE_PORT || '5432'),
-    database: process.env.LAKEBASE_DATABASE || 'postgres',
-    user,
-    password: effectiveToken,
-    ssl: { rejectUnauthorized: false },
-    max: 10,
-    connectionTimeoutMillis: 10_000
-  };
-
-  console.log(`🔌 Connecting to Lakebase: ${host}:${config.port}/${config.database} as ${userEmail ? 'user' : 'env-user'}`);
-  const p = new Pool(config);
-  p.on('error', (err) => console.error('Lakebase pool error:', err.message));
-  poolCache.set(cacheKey, { pool: p, expiry });
-  return p;
+  return null;
 }
 
 /**

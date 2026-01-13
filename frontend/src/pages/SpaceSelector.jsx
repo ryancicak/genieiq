@@ -4,7 +4,7 @@ import SpaceCard from '../components/SpaceCard';
 import { getSpaces, getAllSpacesPage, getAllSpacesPageNew, getNewSpacesFeed, getSpacesStarred, getAllSpacesPageStarred, setSpaceStar, startScanAllJob, getScanAllJob } from '../api/client';
 import './SpaceSelector.css';
 
-function SpaceSelector({ user }) {
+function SpaceSelector({ user, health }) {
   const [spaces, setSpaces] = useState([]);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('score_desc');
@@ -134,6 +134,16 @@ function SpaceSelector({ user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
+  // If Lakebase is missing/unhealthy, default to "All spaces" so the app isn't a blank screen.
+  useEffect(() => {
+    const db = health?.database;
+    const lakebaseOk = db?.mode === 'lakebase' && db?.status === 'healthy';
+    if (!lakebaseOk && mode === 'scored' && !loading && !error && (spaces?.length || 0) === 0 && (total || 0) === 0) {
+      setMode('all');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [health?.database?.status, health?.database?.mode, mode, loading, error, total, spaces?.length]);
+
   useEffect(() => {
     if (mode === 'scored') setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,6 +207,22 @@ function SpaceSelector({ user }) {
             ? 'Fast view from history (Lakebase). Run scans to populate scores.'
             : 'All Genie spaces (paged). Search/sort applies to the current page.'}
         </p>
+
+        {health?.database?.status === 'unhealthy' && (
+          <div className="alert alert-error" role="status" aria-live="polite" style={{ marginTop: 12 }}>
+            <div>
+              <div className="alert-title">Lakebase history is unavailable</div>
+              <div className="alert-body">
+                Your Lakebase database was deleted or is unreachable. You can still use GenieIQ via “All spaces”, but scores/history won’t persist until Lakebase is restored.
+              </div>
+            </div>
+            <div className="alert-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setMode('all')} disabled={loading}>
+                Open All spaces
+              </button>
+            </div>
+          </div>
+        )}
         <div className="space-controls" role="search">
           <div className="mode-tabs" role="tablist" aria-label="Spaces mode">
             <button
