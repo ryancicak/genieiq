@@ -46,7 +46,7 @@ router.get('/', async (req, res) => {
     const ids = (Array.isArray(rows) ? rows : []).map((r) => String(r.space_id)).filter(Boolean);
     const starMap = await lakebase.getStarMapForSpaceIds({ spaceIds: ids, userEmail: req.user?.email, token: req.userToken });
 
-    const spaces = (Array.isArray(rows) ? rows : []).map((r) => ({
+    let spaces = (Array.isArray(rows) ? rows : []).map((r) => ({
       id: r.space_id,
       name: r.space_name,
       description: r.space_description || '',
@@ -61,7 +61,29 @@ router.get('/', async (req, res) => {
       starred: starMap.get(String(r.space_id)) || false
     }));
 
-    res.json({ spaces, page, pageSize, total });
+    // Fallback: if Lakebase returns empty but we have in-memory scans (recent), return those
+    // so the UI isn't a blank screen when DB auth is temporarily unavailable.
+    let degraded = false;
+    if ((!spaces || spaces.length === 0) && scanCache.size > 0) {
+      degraded = true;
+      const cacheRows = Array.from(scanCache.values());
+      spaces = cacheRows
+        .map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description || '',
+          owner: r.owner || null,
+          warehouse: r.warehouse || null,
+          totalScore: r.totalScore ?? null,
+          maturityLevel: r.maturityLevel ?? null,
+          scannedAt: r.scannedAt ?? null,
+          scannedBy: r.scannedBy ?? null,
+          starred: Boolean(r.starred)
+        }))
+        .slice(0, pageSize);
+    }
+
+    res.json({ spaces, page, pageSize, total: degraded ? spaces.length : total, degraded });
   } catch (error) {
     console.error('Error listing spaces:', error);
     res.status(500).json({ error: 'Failed to list spaces', details: error.message });

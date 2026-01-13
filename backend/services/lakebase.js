@@ -34,6 +34,26 @@ function decodeJwtClaims(token) {
   }
 }
 
+function tokenHasDbScope(claims) {
+  const scope = String(claims?.scope || '').toLowerCase();
+  if (!scope) return false;
+  const parts = scope.split(/\s+/g).filter(Boolean);
+  return parts.includes('database') || parts.includes('lakebase');
+}
+
+function identityFromClaims(claims) {
+  // Best-effort: Databricks identity login expects the username to match the token identity.
+  // For user tokens, `sub` is typically the user email.
+  // For service principal tokens, `sub` may be absent and `client_id` is present.
+  return (
+    claims?.sub ||
+    claims?.email ||
+    claims?.user ||
+    claims?.client_id ||
+    null
+  );
+}
+
 function hashToken(token) {
   try {
     return crypto.createHash('sha256').update(String(token || '')).digest('hex').slice(0, 16);
@@ -399,9 +419,11 @@ async function getOAuthToken() {
     return process.env.LAKEBASE_TOKEN;
   }
 
-  // In Databricks Apps, the OAuth token is injected
+  // In Databricks Apps, DATABRICKS_TOKEN may be injected, but it might not be valid for DB auth.
+  // Only accept it if it has the required scope.
   if (process.env.DATABRICKS_TOKEN) {
-    return process.env.DATABRICKS_TOKEN;
+    const c = decodeJwtClaims(process.env.DATABRICKS_TOKEN);
+    if (tokenHasDbScope(c)) return process.env.DATABRICKS_TOKEN;
   }
 
   // In Databricks Apps, prefer service-principal client-credentials token if configured.
@@ -413,9 +435,8 @@ async function getOAuthToken() {
     if (clientId && clientSecret && host) {
       const baseUrl = host.startsWith('http') ? host : `https://${host}`;
       const tokenUrl = `${baseUrl}/oidc/v1/token`;
-      // Try DB-specific scopes first (required for Lakebase Postgres auth in some setups),
-      // then fall back to all-apis.
-      for (const scope of ['database', 'lakebase', 'all-apis']) {
+      // DB auth needs DB-specific scopes.
+      for (const scope of ['database', 'lakebase']) {
         const response = await fetch(tokenUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -462,8 +483,8 @@ async function getOAuthToken() {
  */
 async function getPool({ userEmail = null, token = null } = {}) {
   // NOTE: don't permanently block DB connection attempts once in-memory fallback was used.
-  // If a token is present, we can retry DB auth per-request.
-  if (useInMemory && !token) return null;
+  // We can still retry DB auth using LAKEBASE_TOKEN or service principal credentials.
+  if (useInMemory && !token && !process.env.LAKEBASE_TOKEN && !process.env.DATABRICKS_CLIENT_ID) return null;
 
   const host = process.env.LAKEBASE_HOST;
     
@@ -473,21 +494,44 @@ async function getPool({ userEmail = null, token = null } = {}) {
     return null;
   }
 
-  const effectiveToken = token || process.env.LAKEBASE_TOKEN || await getOAuthToken();
+  // Only use the request token if it has DB scope. Otherwise fetch a DB-scoped token.
+  let effectiveToken = null;
+  let effectiveClaims = null;
+  let effectiveUser = null;
+
+  if (token) {
+    const c = decodeJwtClaims(token);
+    if (tokenHasDbScope(c)) {
+      effectiveToken = token;
+      effectiveClaims = c;
+      // Only trust userEmail if it matches token identity; otherwise use token identity.
+      const ident = identityFromClaims(c);
+      effectiveUser = (userEmail && ident && String(userEmail).toLowerCase() === String(ident).toLowerCase())
+        ? userEmail
+        : (ident || userEmail || null);
+    }
+  }
+
+  if (!effectiveToken && process.env.LAKEBASE_TOKEN) {
+    effectiveToken = process.env.LAKEBASE_TOKEN;
+    effectiveClaims = decodeJwtClaims(effectiveToken);
+    effectiveUser = userEmail || process.env.DATABRICKS_USER || process.env.USER_EMAIL || identityFromClaims(effectiveClaims) || null;
+  }
+
+  if (!effectiveToken) {
+    effectiveToken = await getOAuthToken();
+    effectiveClaims = decodeJwtClaims(effectiveToken);
+    effectiveUser = identityFromClaims(effectiveClaims) || userEmail || process.env.DATABRICKS_USER || process.env.USER_EMAIL || null;
+  }
     
   if (!effectiveToken) {
     console.warn('⚠️ No Databricks token found. Using In-Memory Storage.');
     return null;
   }
 
-  // For Lakebase Postgres, username is typically the Databricks user email and password is an OAuth token.
-  const user =
-    userEmail ||
-    process.env.DATABRICKS_USER ||
-    process.env.USER_EMAIL ||
-    'databricks_user';
+  const user = effectiveUser || 'databricks_user';
 
-  const claims = decodeJwtClaims(effectiveToken);
+  const claims = effectiveClaims || decodeJwtClaims(effectiveToken);
   const expMs = claims?.exp ? (Number(claims.exp) * 1000) : null;
   const expiry = expMs ? expMs : (Date.now() + 55 * 60 * 1000);
   const cacheKey = `${user}::${process.env.LAKEBASE_DATABASE || 'postgres'}::${hashToken(effectiveToken) || 'tok'}`;
