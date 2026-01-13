@@ -201,6 +201,64 @@ router.get('/all', async (req, res) => {
   }
 });
 
+// GET /api/spaces/all/find?name=... - Find a space by name across ALL pages (best-effort)
+// Useful when you have thousands of spaces and search only applies to the current page.
+router.get('/all/find', async (req, res) => {
+  try {
+    const name = String(req.query.name || req.query.q || '').trim();
+    if (!name) return res.status(400).json({ error: 'Missing required query param: name' });
+
+    const maxPages = Math.max(1, Math.min(60, Number(req.query.max_pages || 20)));
+    const pageSize = Math.max(1, Math.min(200, Number(req.query.page_size || 200)));
+    const needle = name.toLowerCase();
+
+    let pageToken = null;
+    let pagesScanned = 0;
+
+    while (pagesScanned < maxPages) {
+      pagesScanned += 1;
+      const resp = await req.databricks.listGenieSpacesPage({ pageToken, pageSize });
+      const spaces = resp?.spaces || resp?.rooms || [];
+      const nextPageToken = resp?.next_page_token || resp?.nextPageToken || null;
+
+      const match = (Array.isArray(spaces) ? spaces : []).find((s) => {
+        const n = String(s?.name || s?.title || '').toLowerCase();
+        return n.includes(needle);
+      });
+
+      if (match) {
+        const id = match?.id || match?.space_id || match?.room_id;
+        const out = {
+          id,
+          name: match?.name || match?.title || 'Untitled',
+          description: match?.description || '',
+          warehouseId: match?.warehouse_id || null
+        };
+        // Best-effort: mark as seen so it can show up in "New spaces" feed.
+        try {
+          await lakebase.upsertSpacesSeen({
+            spaces: [{ id: out.id, name: out.name }],
+            userEmail: req.user?.email,
+            token: req.userToken
+          });
+        } catch {
+          // ignore
+        }
+
+        return res.json({ found: out, pagesScanned, nextPageToken });
+      }
+
+      if (!nextPageToken) break;
+      pageToken = nextPageToken;
+    }
+
+    res.json({ found: null, pagesScanned, exhausted: true });
+  } catch (error) {
+    console.error('Error finding space:', error);
+    res.status(500).json({ error: 'Failed to find space', details: error.message });
+  }
+});
+
 // GET /api/spaces/new?days=7&limit=10 - "New spaces recently added" (based on first_seen_at)
 router.get('/new', async (req, res) => {
   try {
