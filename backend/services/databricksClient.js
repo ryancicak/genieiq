@@ -125,6 +125,9 @@ class DatabricksClient {
     const isWorkspace = typeof endpoint === 'string' && endpoint.startsWith('/workspace/');
     const isGenieExport = typeof endpoint === 'string' && endpoint.startsWith('/genie/spaces/export');
     const isGenieGet = typeof endpoint === 'string' && endpoint.startsWith('/genie/spaces/get');
+    const isGenieList =
+      typeof endpoint === 'string' &&
+      (endpoint === '/genie/spaces' || endpoint.startsWith('/genie/spaces?'));
     const isGenieSpaceRead =
       typeof endpoint === 'string' &&
       endpoint.startsWith('/genie/spaces/') &&
@@ -133,6 +136,9 @@ class DatabricksClient {
     // Genie endpoints currently require broader scopes than Databricks Apps user tokens provide.
     // Prefer service principal OAuth (or an explicit env token override) for Genie calls.
     if (isGenie) {
+      // Genie list: prefer user token so "All spaces" reflects what the logged-in user can actually see.
+      // Some workspaces may reject the proxy token with "invalid scope"; `fetch` retries with SP token.
+      if (isGenieList && this.userToken) return this.userToken;
       // Special-case: Genie "export" is a user-driven feature and may only be accessible
       // via the Databricks Apps proxy user token. Try that first when present.
       if (isGenieExport && this.userToken) return this.userToken;
