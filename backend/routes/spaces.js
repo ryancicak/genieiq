@@ -212,6 +212,17 @@ router.get('/all/find', async (req, res) => {
     const pageSize = Math.max(1, Math.min(200, Number(req.query.page_size || 200)));
     const needle = name.toLowerCase();
 
+    // Debug (no secrets): helps diagnose cases where the app doesn't receive a user token and
+    // the service principal cannot see user-created spaces.
+    const tokenPresent = Boolean(req.userToken);
+    if (!tokenPresent) {
+      const keys = Object.keys(req.headers || {})
+        .map((k) => String(k).toLowerCase())
+        .filter((k) => k.includes('authorization') || k.includes('token') || k.includes('databricks') || k.includes('forwarded'))
+        .slice(0, 60);
+      console.warn('⚠️ /spaces/all/find: user token missing; header keys:', keys);
+    }
+
     let pageToken = null;
     let pagesScanned = 0;
 
@@ -252,6 +263,11 @@ router.get('/all/find', async (req, res) => {
       pageToken = nextPageToken;
     }
 
+    console.warn('ℹ️ /spaces/all/find: no match', {
+      name,
+      pagesScanned,
+      tokenPresent,
+    });
     res.json({ found: null, pagesScanned, exhausted: true });
   } catch (error) {
     console.error('Error finding space:', error);
