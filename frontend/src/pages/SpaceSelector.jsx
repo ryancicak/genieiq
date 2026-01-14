@@ -1,11 +1,10 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import SpaceCard from '../components/SpaceCard';
-import { getSpaces, getAllSpacesPage, getAllSpacesPageNew, getNewSpacesFeed, getSpacesStarred, getAllSpacesPageStarred, findAllSpaceByName, setSpaceStar, startScanAllJob, getScanAllJob } from '../api/client';
+import { getSpaces, getAllSpacesPage, getAllSpacesPageNew, getNewSpacesFeed, getSpacesStarred, getAllSpacesPageStarred, setSpaceStar, startScanAllJob, getScanAllJob } from '../api/client';
 import './SpaceSelector.css';
 
 function SpaceSelector({ user, health }) {
-  const navigate = useNavigate();
   const [spaces, setSpaces] = useState([]);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('score_desc');
@@ -15,8 +14,6 @@ function SpaceSelector({ user, health }) {
   const [error, setError] = useState(null);
   const [scanJob, setScanJob] = useState(null);
   const [scanJobError, setScanJobError] = useState(null);
-  const [finding, setFinding] = useState(false);
-  const [findError, setFindError] = useState(null);
   const [mode, setMode] = useState('scored'); // 'scored' | 'all'
   const [starredOnly, setStarredOnly] = useState(false);
   const [newOnly, setNewOnly] = useState(false);
@@ -74,25 +71,6 @@ function SpaceSelector({ user, health }) {
       setScanJob(resp?.job || null);
     } catch (e) {
       setScanJobError(e?.message || 'Failed to start scan job');
-    }
-  };
-
-  const findGlobally = async () => {
-    const q = query.trim();
-    if (!q) return;
-    setFindError(null);
-    setFinding(true);
-    try {
-      const resp = await findAllSpaceByName(q, { maxPages: 30, pageSize: 200 });
-      if (resp?.found?.id) {
-        navigate(`/spaces/${resp.found.id}`);
-      } else {
-        setFindError(`No space found matching “${q}”.`);
-      }
-    } catch (e) {
-      setFindError(e?.message || 'Failed to find space');
-    } finally {
-      setFinding(false);
     }
   };
 
@@ -314,12 +292,6 @@ function SpaceSelector({ user, health }) {
             aria-label="Search spaces by name"
             autoComplete="off"
             disabled={loading}
-            onKeyDown={(e) => {
-              if (mode === 'all' && (e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault();
-                findGlobally();
-              }
-            }}
           />
           <select
             className="space-sort control"
@@ -344,17 +316,6 @@ function SpaceSelector({ user, health }) {
               Clear
             </button>
           )}
-          {mode === 'all' && query.trim().length > 0 && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={findGlobally}
-              disabled={loading || finding}
-              title="Find across all pages (Cmd/Ctrl+Enter in the search box)"
-            >
-              {finding ? 'Finding…' : 'Find globally'}
-            </button>
-          )}
           {user?.isAdmin && (
             <button
               type="button"
@@ -369,12 +330,6 @@ function SpaceSelector({ user, health }) {
             </button>
           )}
         </div>
-
-        {mode === 'all' && findError && (
-          <div className="alert alert-error" role="status" aria-live="polite" style={{ marginTop: 10 }}>
-            <div className="alert-body">{findError}</div>
-          </div>
-        )}
 
         <div className="spaces-meta-row">
           <div className="space-count" aria-live="polite">

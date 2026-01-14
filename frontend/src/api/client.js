@@ -84,14 +84,6 @@ export async function getAllSpacesPageStarred({ pageToken = null, pageSize = 50 
   return fetchAPI(`/spaces/all?${params.toString()}`);
 }
 
-export async function findAllSpaceByName(name, { maxPages = 20, pageSize = 200 } = {}) {
-  const params = new URLSearchParams();
-  params.set('name', String(name || '').trim());
-  params.set('max_pages', String(maxPages));
-  params.set('page_size', String(pageSize));
-  return fetchAPI(`/spaces/all/find?${params.toString()}`);
-}
-
 export async function getNewSpacesFeed({ days = 7, limit = 10 } = {}) {
   const params = new URLSearchParams();
   params.set('days', String(days));
@@ -159,7 +151,6 @@ export default {
   getAllSpacesPageNew,
   getSpacesStarred,
   getAllSpacesPageStarred,
-  findAllSpaceByName,
   getSpace,
   scanSpace,
   getSpaceHistory,
