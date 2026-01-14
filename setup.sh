@@ -169,3 +169,104 @@ else
   echo "Skipped deploy."
   echo "To deploy later: ./deploy.sh"
 fi
+
+# ----------------------------------------------------------------------------
+# Optional: Grant Unity Catalog read access to the GenieIQ App service principal
+# ----------------------------------------------------------------------------
+echo ""
+echo -e "${BOLD}Optional - Unity Catalog access for the GenieIQ app${NC}"
+echo "Some Genie APIs fail if the calling identity lacks UC permissions on any table in a space."
+echo "To avoid \"Failed to fetch tables for the space\" errors, you can grant the GenieIQ app service principal"
+echo "least-privilege read access to specific UC schema(s)."
+echo ""
+read -r -p "Grant UC read access to the GenieIQ app now? [y/N]: " DO_GRANTS
+DO_GRANTS="${DO_GRANTS:-N}"
+
+if [[ "$DO_GRANTS" =~ ^[Yy]$ ]]; then
+  # Pick a reliable CLI binary (many machines have multiple versions).
+  DBX_BIN="/opt/homebrew/bin/databricks"
+  if [ ! -x "$DBX_BIN" ]; then
+    if command -v databricks &> /dev/null; then
+      DBX_BIN="$(command -v databricks)"
+    else
+      echo -e "${RED}✗ Databricks CLI not found. Install it first:${NC}"
+      echo "  brew install databricks/tap/databricks"
+      exit 1
+    fi
+  fi
+
+  PROFILE="${DATABRICKS_CONFIG_PROFILE:-genieiq}"
+  APP_NAME="${GENIEIQ_APP_NAME:-genieiq}"
+
+  echo ""
+  echo -e "${BOLD}Detecting GenieIQ app service principal...${NC}"
+  echo "  profile: ${PROFILE}"
+  echo "  app:     ${APP_NAME}"
+
+  APP_SP_ID="$("$DBX_BIN" --profile "$PROFILE" apps get "$APP_NAME" --output json 2>/dev/null | python3 -c 'import sys,json\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o={}\nprint(o.get(\"service_principal_client_id\") or \"\")' || true)"
+  if [ -z "${APP_SP_ID:-}" ]; then
+    echo -e "${RED}✗ Could not detect the app service principal client id.${NC}"
+    echo "Make sure the app exists in this workspace and your CLI profile is authenticated."
+    echo "Tip: set GENIEIQ_APP_NAME=<name> and/or DATABRICKS_CONFIG_PROFILE=<profile> and rerun."
+    exit 1
+  fi
+
+  echo -e "${GREEN}✓ App service principal client id: ${APP_SP_ID}${NC}"
+  echo ""
+  echo -e "${BOLD}Which UC schema(s) should GenieIQ be able to read?${NC}"
+  echo "Enter one per line in the form: catalog.schema"
+  echo "Example:"
+  echo "  cicaktest_catalog.default"
+  echo ""
+  echo "Press Enter on a blank line to finish."
+
+  SCHEMAS=()
+  while true; do
+    read -r -p "schema> " s
+    s="$(echo "${s:-}" | tr -d '\"' | xargs || true)"
+    if [ -z "${s:-}" ]; then
+      break
+    fi
+    if ! echo "$s" | grep -qE '^[^.]+\.[^.]+$'; then
+      echo -e "${YELLOW}  ! Invalid format. Expected catalog.schema${NC}"
+      continue
+    fi
+    SCHEMAS+=("$s")
+  done
+
+  if [ "${#SCHEMAS[@]}" -eq 0 ]; then
+    echo -e "${YELLOW}No schemas provided. Skipping UC grants.${NC}"
+  else
+    echo ""
+    echo -e "${BOLD}Applying UC grants (least privilege)${NC}"
+    echo "This will grant:"
+    echo "  - USE_CATALOG on each catalog"
+    echo "  - USE_SCHEMA + SELECT on each schema (inherits to all tables)"
+    echo ""
+
+    for full in "${SCHEMAS[@]}"; do
+      CATALOG="${full%%.*}"
+      SCHEMA="${full#*.}"
+
+      echo -e "${CYAN}→ ${CATALOG}.${SCHEMA}${NC}"
+
+      # 1) Catalog: USE_CATALOG
+      "$DBX_BIN" --profile "$PROFILE" grants update CATALOG "$CATALOG" \
+        --json "{\"changes\":[{\"principal\":\"${APP_SP_ID}\",\"add\":[\"USE_CATALOG\"]}]}" \
+        --output json >/dev/null 2>&1 || {
+          echo -e "${YELLOW}  ! Could not grant USE_CATALOG on ${CATALOG}. Continuing...${NC}"
+        }
+
+      # 2) Schema: USE_SCHEMA + SELECT (inherited to tables)
+      "$DBX_BIN" --profile "$PROFILE" grants update SCHEMA "${CATALOG}.${SCHEMA}" \
+        --json "{\"changes\":[{\"principal\":\"${APP_SP_ID}\",\"add\":[\"USE_SCHEMA\",\"SELECT\"]}]}" \
+        --output json >/dev/null 2>&1 || {
+          echo -e "${YELLOW}  ! Could not grant USE_SCHEMA/SELECT on ${CATALOG}.${SCHEMA}. Continuing...${NC}"
+        }
+    done
+
+    echo ""
+    echo -e "${GREEN}✓ Done.${NC}"
+    echo "If a space references tables outside these schema(s), you may still see table-access errors until you grant access there too."
+  fi
+fi
