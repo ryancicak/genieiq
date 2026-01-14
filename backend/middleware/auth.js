@@ -21,18 +21,30 @@ async function authMiddleware(req, res, next) {
     // service principal OAuth (handled inside DatabricksClient) when missing.
     const authz =
       req.headers['x-forwarded-authorization'] ||
+      req.headers['x-databricks-authorization'] ||
       req.headers['authorization'] ||
       null;
-    const bearerFromAuthz =
-      typeof authz === 'string' && authz.toLowerCase().startsWith('bearer ')
-        ? authz.slice(7).trim()
-        : null;
+
+    // Databricks Apps may forward the user token either as:
+    // - "Bearer <token>" (standard)
+    // - "<token>" (no Bearer prefix)
+    // We accept both formats.
+    const tokenFromAuthz = (() => {
+      if (typeof authz !== 'string') return null;
+      const v = authz.trim();
+      if (!v) return null;
+      if (v.toLowerCase().startsWith('bearer ')) return v.slice(7).trim();
+      // Heuristic: JWT-ish token has two dots.
+      if ((v.match(/\./g) || []).length >= 2) return v;
+      // Otherwise treat as a raw token string.
+      return v;
+    })();
 
     const token =
       req.headers['x-forwarded-access-token'] ||
       req.headers['x-databricks-oauth-token'] ||
       req.headers['x-databricks-token'] ||
-      bearerFromAuthz ||
+      tokenFromAuthz ||
       null;
 
     // Local development fallback (no Databricks proxy headers)
