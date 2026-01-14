@@ -207,7 +207,14 @@ SELECT
   COUNT(DISTINCT space_id) as total_spaces,
   ROUND(AVG(total_score)) as avg_score,
   COUNT(*) FILTER (WHERE total_score < 40) as critical_count,
-  COUNT(*) FILTER (WHERE is_serverless = false) as shared_warehouse_count,
+  COUNT(*) FILTER (
+    WHERE EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(COALESCE(findings, '[]'::jsonb)) f
+      WHERE (f->>'id') IN ('dedicated_warehouse', 'warehouse_size_latency')
+        AND COALESCE((f->>'passed')::boolean, false) = false
+    )
+  ) as warehouse_attention_count,
   MAX(scanned_at) as last_scan_time
 FROM latest_scores;
 `;
@@ -286,7 +293,14 @@ async function ensureSchema(dbPool) {
         COUNT(DISTINCT space_id) as total_spaces,
         ROUND(AVG(total_score)) as avg_score,
         COUNT(*) FILTER (WHERE total_score < 40) as critical_count,
-        COUNT(*) FILTER (WHERE is_serverless = false) as shared_warehouse_count,
+        COUNT(*) FILTER (
+          WHERE EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(findings, '[]'::jsonb)) f
+            WHERE (f->>'id') IN ('dedicated_warehouse', 'warehouse_size_latency')
+              AND COALESCE((f->>'passed')::boolean, false) = false
+          )
+        ) as warehouse_attention_count,
         MAX(scanned_at) as last_scan_time
       FROM latest_scores;
     `);

@@ -100,7 +100,7 @@ router.get('/dashboard', async (req, res) => {
     const dbPool = await lakebase.getPool({ userEmail: req.user?.email, token: req.userToken });
     if (!dbPool) {
       return res.json({
-        stats: { totalSpaces: 0, avgScore: 0, criticalCount: 0, sharedWarehouseCount: 0, lastScanTime: null },
+        stats: { totalSpaces: 0, avgScore: 0, criticalCount: 0, warehouseAttentionCount: 0, lastScanTime: null },
         needsAttention: [],
         allSpaces: [],
         note: 'Lakebase not configured; run scans to populate history.'
@@ -108,18 +108,18 @@ router.get('/dashboard', async (req, res) => {
     }
 
     const statsRes = await dbPool.query(`
-      WITH shared AS (
-        SELECT warehouse_id
-        FROM latest_scores
-        WHERE warehouse_id IS NOT NULL
-        GROUP BY warehouse_id
-        HAVING COUNT(*) > 1
-      )
       SELECT
         COUNT(*)::int AS total_spaces,
         COALESCE(ROUND(AVG(total_score))::int, 0) AS avg_score,
         COUNT(*) FILTER (WHERE total_score < 40)::int AS critical_count,
-        COUNT(*) FILTER (WHERE warehouse_id IN (SELECT warehouse_id FROM shared))::int AS shared_warehouse_count,
+        COUNT(*) FILTER (
+          WHERE EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(findings, '[]'::jsonb)) f
+            WHERE (f->>'id') IN ('dedicated_warehouse', 'warehouse_size_latency')
+              AND COALESCE((f->>'passed')::boolean, false) = false
+          )
+        )::int AS warehouse_attention_count,
         MAX(scanned_at) AS last_scan_time
       FROM latest_scores
     `);
@@ -129,7 +129,7 @@ router.get('/dashboard', async (req, res) => {
       totalSpaces: s.total_spaces ?? 0,
       avgScore: s.avg_score ?? 0,
       criticalCount: s.critical_count ?? 0,
-      sharedWarehouseCount: s.shared_warehouse_count ?? 0,
+      warehouseAttentionCount: s.warehouse_attention_count ?? 0,
       lastScanTime: s.last_scan_time ?? null
     };
 

@@ -126,7 +126,7 @@ function AdminDashboard() {
             <StatCard value={stats?.totalSpaces ?? 0} label="Total Spaces" index={0} />
             <StatCard value={stats?.avgScore ?? 0} label="Avg Score" index={1} />
             <StatCard value={stats?.criticalCount ?? 0} label="Critical Issues" index={2} />
-            <StatCard value={stats?.sharedWarehouseCount ?? 0} label="Shared Warehouses" index={3} />
+            <StatCard value={stats?.warehouseAttentionCount ?? 0} label="Warehouse needs attention" index={3} />
           </>
         )}
       </div>
