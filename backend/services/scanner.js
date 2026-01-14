@@ -642,20 +642,43 @@ async function scanSpace(databricksClient, spaceId, opts = {}) {
       space = await databricksClient.getGenieSpaceWithSerialized(spaceId);
     } catch (e) {
       const msg = String(e?.message || e || '');
-      const needsEdit =
-        /PERMISSION_DENIED/i.test(msg) &&
-        /Can Edit/i.test(msg);
-      if (!needsEdit) throw e;
+      const isPermissionDenied = /PERMISSION_DENIED/i.test(msg);
+      const needsEdit = isPermissionDenied && /Can Edit/i.test(msg);
+      const tableAccessDenied = isPermissionDenied && /Failed to fetch tables for the space/i.test(msg);
+      if (!needsEdit && !tableAccessDenied) throw e;
 
       // Some workspaces require Can Edit to read `serialized_space`, even for viewing.
+      // Other workspaces reject `include_serialized_space` if the viewer lacks UC access to one
+      // of the configured tables.
       // Fall back to the basic space payload so users can still open/scan a brand-new space.
-      accessWarning = {
-        code: 'needs_can_edit_for_serialized_space',
-        message:
-          'GenieIQ could not read the full space configuration (serialized settings). ' +
-          'This typically means the app does not have Can Edit permission on this space. ' +
-          'You can still view basic details, but scoring may be incomplete until the space is shared with the GenieIQ app principal.'
-      };
+      const tableHints = (() => {
+        if (!tableAccessDenied) return [];
+        const m = msg.match(/No access to table\s+'([^']+)'/gi) || [];
+        return m
+          .map((s) => {
+            const mm = s.match(/'([^']+)'/);
+            return mm?.[1] ? String(mm[1]) : null;
+          })
+          .filter(Boolean)
+          .slice(0, 6);
+      })();
+
+      accessWarning = tableAccessDenied
+        ? {
+            code: 'no_table_access_for_serialized_space',
+            message:
+              'GenieIQ could not read the full space configuration because one or more configured tables are not accessible. ' +
+              (tableHints.length ? `Missing access to: ${tableHints.join(', ')}. ` : '') +
+              'Grant the required Unity Catalog permissions for those tables (or remove them from the space), then refresh.'
+          }
+        : {
+            code: 'needs_can_edit_for_serialized_space',
+            message:
+              'GenieIQ could not read the full space configuration (serialized settings). ' +
+              'This typically means the app does not have Can Edit permission on this space. ' +
+              'You can still view basic details, but scoring may be incomplete until the space is shared with the GenieIQ app principal.'
+          };
+
       space = await databricksClient.getGenieSpace(spaceId);
       space._genieiqAccessWarning = accessWarning;
     }
