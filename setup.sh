@@ -341,3 +341,128 @@ if [[ "$DO_GRANTS" =~ ^[Yy]$ ]]; then
     fi
   fi
 fi
+
+# ----------------------------------------------------------------------------
+# Optional: Grant Genie space edit access to the GenieIQ App service principal
+# ----------------------------------------------------------------------------
+echo ""
+echo -e "${BOLD}Optional - Genie space permissions for the GenieIQ app${NC}"
+echo "GenieIQ may call APIs that require the app service principal to have edit access to Genie spaces."
+echo "If you want the app to be able to read serialized settings and operate across spaces without manual sharing,"
+echo "you can grant the app service principal a permission level on Genie spaces."
+echo ""
+read -r -p "Grant Genie space permissions to the GenieIQ app now? [y/N]: " DO_GENIE_PERMS
+DO_GENIE_PERMS="${DO_GENIE_PERMS:-N}"
+
+if [[ "$DO_GENIE_PERMS" =~ ^[Yy]$ ]]; then
+  DBX_BIN="/opt/homebrew/bin/databricks"
+  if [ ! -x "$DBX_BIN" ]; then
+    if command -v databricks &> /dev/null; then
+      DBX_BIN="$(command -v databricks)"
+    else
+      echo -e "${RED}✗ Databricks CLI not found. Install it first:${NC}"
+      echo "  brew install databricks/tap/databricks"
+      exit 1
+    fi
+  fi
+
+  PROFILE="${DATABRICKS_CONFIG_PROFILE:-genieiq}"
+  APP_NAME="${GENIEIQ_APP_NAME:-genieiq}"
+
+  APP_SP_ID="$("$DBX_BIN" --profile "$PROFILE" apps get "$APP_NAME" --output json 2>/dev/null | python3 -c 'import sys,json\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o={}\nprint(o.get(\"service_principal_client_id\") or \"\")' || true)"
+  if [ -z "${APP_SP_ID:-}" ]; then
+    echo -e "${RED}✗ Could not detect the app service principal client id.${NC}"
+    echo "Make sure the app exists in this workspace and your CLI profile is authenticated."
+    exit 1
+  fi
+
+  echo ""
+  echo -e "${BOLD}Choose permission level to grant the app on Genie spaces:${NC}"
+  echo "  - CAN_EDIT  (recommended): can edit spaces"
+  echo "  - CAN_MANAGE (very permissive): can edit + change permissions + view other users' conversations"
+  echo ""
+  read -r -p "Permission level [CAN_EDIT/CAN_MANAGE] (default CAN_EDIT): " GENIE_LEVEL
+  GENIE_LEVEL="${GENIE_LEVEL:-CAN_EDIT}"
+  if [[ "$GENIE_LEVEL" != "CAN_EDIT" && "$GENIE_LEVEL" != "CAN_MANAGE" ]]; then
+    echo -e "${YELLOW}  ! Invalid choice. Using CAN_EDIT.${NC}"
+    GENIE_LEVEL="CAN_EDIT"
+  fi
+
+  echo ""
+  echo -e "${YELLOW}${BOLD}Warning:${NC} This modifies permissions on Genie spaces for service principal ${APP_SP_ID}."
+  echo -e "${YELLOW}Proceed only if you want the GenieIQ app to have broad access in this workspace.${NC}"
+  echo ""
+  read -r -p "Proceed? [y/N]: " CONFIRM_GENIE
+  CONFIRM_GENIE="${CONFIRM_GENIE:-N}"
+  if [[ ! "$CONFIRM_GENIE" =~ ^[Yy]$ ]]; then
+    echo "Skipped Genie permissions."
+  else
+    echo ""
+    read -r -p "How many spaces to update? Enter a number or 'all' (default: all): " LIMIT_SPACES
+    LIMIT_SPACES="${LIMIT_SPACES:-all}"
+    if [[ "$LIMIT_SPACES" != "all" ]] && ! echo "$LIMIT_SPACES" | grep -qE '^[0-9]+$'; then
+      echo -e "${YELLOW}  ! Invalid value. Using 'all'.${NC}"
+      LIMIT_SPACES="all"
+    fi
+
+    echo ""
+    echo -e "${BOLD}Updating Genie spaces...${NC}"
+    echo "App principal: ${APP_SP_ID}"
+    echo "Permission:    ${GENIE_LEVEL}"
+    echo "Limit:         ${LIMIT_SPACES}"
+    echo ""
+
+    page_token=""
+    updated=0
+    failed=0
+
+    while true; do
+      qs="page_size=200"
+      if [ -n "${page_token:-}" ]; then
+        qs="${qs}&page_token=${page_token}"
+      fi
+
+      RESP="$("$DBX_BIN" --profile "$PROFILE" api get "/api/2.0/genie/spaces?${qs}" --output json 2>/dev/null || echo '{}')"
+
+      IDS="$(python3 -c 'import sys,json\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o={}\nspaces=o.get(\"spaces\") or o.get(\"rooms\") or []\nfor s in spaces or []:\n  sid=s.get(\"id\") or s.get(\"space_id\") or s.get(\"room_id\")\n  if sid:\n    print(sid)\n' <<<"$RESP")"
+
+      NEXT="$(python3 -c 'import sys,json\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o={}\nprint(o.get(\"next_page_token\") or o.get(\"nextPageToken\") or \"\")\n' <<<"$RESP")"
+
+      if [ -z "${IDS:-}" ]; then
+        break
+      fi
+
+      while IFS= read -r sid; do
+        [ -z "${sid:-}" ] && continue
+
+        # Apply permission (idempotent).
+        if "$DBX_BIN" --profile "$PROFILE" permissions update genie "$sid" \
+          --json "{\"access_control_list\":[{\"service_principal_name\":\"${APP_SP_ID}\",\"permission_level\":\"${GENIE_LEVEL}\"}]}" \
+          --output json >/dev/null 2>&1; then
+          updated=$((updated + 1))
+        else
+          failed=$((failed + 1))
+        fi
+
+        if [ "$((updated + failed))" -eq 1 ] || [ $(( (updated + failed) % 50 )) -eq 0 ]; then
+          echo "  progress: $((updated + failed)) updated (ok=${updated}, failed=${failed})"
+        fi
+
+        if [ "$LIMIT_SPACES" != "all" ] && [ "$((updated + failed))" -ge "$LIMIT_SPACES" ]; then
+          NEXT=""
+          break
+        fi
+      done <<<"$IDS"
+
+      if [ -z "${NEXT:-}" ]; then
+        break
+      fi
+      page_token="$NEXT"
+    done
+
+    echo ""
+    echo -e "${GREEN}✓ Genie permissions update complete.${NC}"
+    echo "Updated: ${updated}"
+    echo "Failed:  ${failed}"
+  fi
+fi
