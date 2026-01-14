@@ -164,6 +164,7 @@ function SpaceDetail() {
     );
   }
 
+  const accessWarning = space?.accessWarning;
   const breakdownItems = Object.values(space.breakdown || {});
   const findings = Array.isArray(space.findings) ? space.findings : [];
   const passedFindings = findings.filter(f => f.passed);
@@ -266,6 +267,15 @@ function SpaceDetail() {
           </div>
         )}
       </div>
+
+      {accessWarning?.message && (
+        <div className="alert alert-error" role="status" aria-live="polite" style={{ marginTop: 12 }}>
+          <div>
+            <div className="alert-title">Limited access to this space</div>
+            <div className="alert-body">{accessWarning.message}</div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="alert alert-error" role="status" aria-live="polite" style={{ marginTop: 12 }}>

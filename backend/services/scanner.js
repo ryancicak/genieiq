@@ -636,7 +636,29 @@ async function tryEnrichSpaceFromGenieGet(databricksClient, space) {
 async function scanSpace(databricksClient, spaceId, opts = {}) {
   try {
     // Use serialized_space when available so we can score instructions/tables accurately.
-    const space = await databricksClient.getGenieSpaceWithSerialized(spaceId);
+    let space;
+    let accessWarning = null;
+    try {
+      space = await databricksClient.getGenieSpaceWithSerialized(spaceId);
+    } catch (e) {
+      const msg = String(e?.message || e || '');
+      const needsEdit =
+        /PERMISSION_DENIED/i.test(msg) &&
+        /Can Edit/i.test(msg);
+      if (!needsEdit) throw e;
+
+      // Some workspaces require Can Edit to read `serialized_space`, even for viewing.
+      // Fall back to the basic space payload so users can still open/scan a brand-new space.
+      accessWarning = {
+        code: 'needs_can_edit_for_serialized_space',
+        message:
+          'GenieIQ could not read the full space configuration (serialized settings). ' +
+          'This typically means the app does not have Can Edit permission on this space. ' +
+          'You can still view basic details, but scoring may be incomplete until the space is shared with the GenieIQ app principal.'
+      };
+      space = await databricksClient.getGenieSpace(spaceId);
+      space._genieiqAccessWarning = accessWarning;
+    }
     // Genie “Data & descriptions” for tables may be stored inside serialized_space itself in some workspaces.
     try {
       const serializedObj = parseSerializedSpace(space?.serialized_space);
@@ -718,6 +740,7 @@ async function scanSpace(databricksClient, spaceId, opts = {}) {
       name: space.name || space.title || 'Unnamed Space',
       description: space.description,
       owner: space.owner || space.creator_email || space.creator,
+      accessWarning: space?._genieiqAccessWarning || null,
       warehouse: warehouse ? {
         id: warehouse.id,
         name: warehouse.name,
