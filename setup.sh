@@ -213,60 +213,131 @@ if [[ "$DO_GRANTS" =~ ^[Yy]$ ]]; then
 
   echo -e "${GREEN}✓ App service principal client id: ${APP_SP_ID}${NC}"
   echo ""
-  echo -e "${BOLD}Which UC schema(s) should GenieIQ be able to read?${NC}"
-  echo "Enter one per line in the form: catalog.schema"
-  echo "Example:"
-  echo "  cicaktest_catalog.default"
+  echo -e "${BOLD}How broad should the app's UC read access be?${NC}"
+  echo "  1) Specific schema(s) (recommended)"
+  echo "  2) Broad read across ALL catalogs/schemas you can administer (simple, but very permissive)"
   echo ""
-  echo "Press Enter on a blank line to finish."
+  read -r -p "Choose [1/2] (default 1): " GRANT_MODE
+  GRANT_MODE="${GRANT_MODE:-1}"
 
-  SCHEMAS=()
-  while true; do
-    read -r -p "schema> " s
-    s="$(echo "${s:-}" | tr -d '\"' | xargs || true)"
-    if [ -z "${s:-}" ]; then
-      break
-    fi
-    if ! echo "$s" | grep -qE '^[^.]+\.[^.]+$'; then
-      echo -e "${YELLOW}  ! Invalid format. Expected catalog.schema${NC}"
-      continue
-    fi
-    SCHEMAS+=("$s")
-  done
+  apply_catalog_grant() {
+    local catalog="$1"
+    "$DBX_BIN" --profile "$PROFILE" grants update CATALOG "$catalog" \
+      --json "{\"changes\":[{\"principal\":\"${APP_SP_ID}\",\"add\":[\"USE_CATALOG\"]}]}" \
+      --output json >/dev/null 2>&1 || return 1
+    return 0
+  }
 
-  if [ "${#SCHEMAS[@]}" -eq 0 ]; then
-    echo -e "${YELLOW}No schemas provided. Skipping UC grants.${NC}"
+  apply_schema_grant() {
+    local full_schema="$1" # catalog.schema
+    "$DBX_BIN" --profile "$PROFILE" grants update SCHEMA "$full_schema" \
+      --json "{\"changes\":[{\"principal\":\"${APP_SP_ID}\",\"add\":[\"USE_SCHEMA\",\"SELECT\"]}]}" \
+      --output json >/dev/null 2>&1 || return 1
+    return 0
+  }
+
+  if [ "$GRANT_MODE" = "2" ]; then
+    echo ""
+    echo -e "${YELLOW}${BOLD}Warning:${NC} This grants the GenieIQ app broad read access across your Unity Catalog."
+    echo -e "${YELLOW}This is convenient, but it may exceed least-privilege security standards.${NC}"
+    echo ""
+    read -r -p "Proceed with broad read grants? [y/N]: " CONFIRM_BROAD
+    CONFIRM_BROAD="${CONFIRM_BROAD:-N}"
+    if [[ ! "$CONFIRM_BROAD" =~ ^[Yy]$ ]]; then
+      echo "Skipped UC grants."
+    else
+      echo ""
+      echo -e "${BOLD}Discovering catalogs and schemas...${NC}"
+      # Best-effort: list catalogs + schemas. Requires metastore admin to see everything.
+      CATALOGS_JSON="$("$DBX_BIN" --profile "$PROFILE" catalogs list --max-results 0 --include-browse --include-unbound --output json 2>/dev/null || echo "[]")"
+      CATALOGS="$(python3 -c 'import sys,json\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o=[]\nif isinstance(o, dict):\n  o=o.get(\"catalogs\") or []\nif not isinstance(o, list):\n  o=[]\nfor c in o:\n  n=(c.get(\"name\") or c.get(\"full_name\") or \"\").strip()\n  t=(c.get(\"catalog_type\") or \"\").upper()\n  if not n:\n    continue\n  # Skip system catalogs that are usually not grant-manageable.\n  if t in (\"SYSTEM_CATALOG\",):\n    continue\n  if n.lower() in (\"system\",):\n    continue\n  print(n)\n' <<<"$CATALOGS_JSON")"
+
+      if [ -z "${CATALOGS:-}" ]; then
+        echo -e "${YELLOW}  ! No catalogs found or insufficient privileges to list catalogs.${NC}"
+        echo -e "${YELLOW}  Tip: run as a metastore admin, or use mode 1 and list schema(s) explicitly.${NC}"
+      else
+        echo ""
+        echo -e "${BOLD}Applying broad UC grants...${NC}"
+        while IFS= read -r catalog; do
+          [ -z "${catalog:-}" ] && continue
+          echo -e "${CYAN}→ Catalog: ${catalog}${NC}"
+          if ! apply_catalog_grant "$catalog"; then
+            echo -e "${YELLOW}  ! Could not grant USE_CATALOG on ${catalog}. Continuing...${NC}"
+            continue
+          fi
+
+          SCHEMAS_JSON="$("$DBX_BIN" --profile "$PROFILE" schemas list "$catalog" --max-results 0 --include-browse --output json 2>/dev/null || echo "[]")"
+          SCHEMAS="$(python3 -c 'import sys,json\ncat=sys.argv[1]\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o=[]\nif isinstance(o, dict):\n  o=o.get(\"schemas\") or []\nif not isinstance(o, list):\n  o=[]\nfor s in o:\n  n=(s.get(\"name\") or \"\").strip()\n  if not n:\n    continue\n  # Skip system-like schemas.\n  if n.lower() in (\"information_schema\",):\n    continue\n  print(f\"{cat}.{n}\")\n' \"$catalog\" <<<"$SCHEMAS_JSON")"
+
+          if [ -z "${SCHEMAS:-}" ]; then
+            echo -e "${YELLOW}  ! No schemas found in ${catalog} (or insufficient privilege to list).${NC}"
+            continue
+          fi
+
+          while IFS= read -r full_schema; do
+            [ -z "${full_schema:-}" ] && continue
+            if ! apply_schema_grant "$full_schema"; then
+              echo -e "${YELLOW}  ! Could not grant USE_SCHEMA/SELECT on ${full_schema}. Continuing...${NC}"
+            fi
+          done <<<"$SCHEMAS"
+        done <<<"$CATALOGS"
+
+        echo ""
+        echo -e "${GREEN}✓ Broad UC grants completed.${NC}"
+        echo "If some catalogs/schemas were skipped, it usually means your identity isn't allowed to manage grants there."
+      fi
+    fi
   else
     echo ""
-    echo -e "${BOLD}Applying UC grants (least privilege)${NC}"
-    echo "This will grant:"
-    echo "  - USE_CATALOG on each catalog"
-    echo "  - USE_SCHEMA + SELECT on each schema (inherits to all tables)"
+    echo -e "${BOLD}Which UC schema(s) should GenieIQ be able to read?${NC}"
+    echo "Enter one per line in the form: catalog.schema"
+    echo "Example:"
+    echo "  cicaktest_catalog.default"
     echo ""
+    echo "Press Enter on a blank line to finish."
 
-    for full in "${SCHEMAS[@]}"; do
-      CATALOG="${full%%.*}"
-      SCHEMA="${full#*.}"
-
-      echo -e "${CYAN}→ ${CATALOG}.${SCHEMA}${NC}"
-
-      # 1) Catalog: USE_CATALOG
-      "$DBX_BIN" --profile "$PROFILE" grants update CATALOG "$CATALOG" \
-        --json "{\"changes\":[{\"principal\":\"${APP_SP_ID}\",\"add\":[\"USE_CATALOG\"]}]}" \
-        --output json >/dev/null 2>&1 || {
-          echo -e "${YELLOW}  ! Could not grant USE_CATALOG on ${CATALOG}. Continuing...${NC}"
-        }
-
-      # 2) Schema: USE_SCHEMA + SELECT (inherited to tables)
-      "$DBX_BIN" --profile "$PROFILE" grants update SCHEMA "${CATALOG}.${SCHEMA}" \
-        --json "{\"changes\":[{\"principal\":\"${APP_SP_ID}\",\"add\":[\"USE_SCHEMA\",\"SELECT\"]}]}" \
-        --output json >/dev/null 2>&1 || {
-          echo -e "${YELLOW}  ! Could not grant USE_SCHEMA/SELECT on ${CATALOG}.${SCHEMA}. Continuing...${NC}"
-        }
+    SCHEMAS=()
+    while true; do
+      read -r -p "schema> " s
+      s="$(echo "${s:-}" | tr -d '\"' | xargs || true)"
+      if [ -z "${s:-}" ]; then
+        break
+      fi
+      if ! echo "$s" | grep -qE '^[^.]+\.[^.]+$'; then
+        echo -e "${YELLOW}  ! Invalid format. Expected catalog.schema${NC}"
+        continue
+      fi
+      SCHEMAS+=("$s")
     done
 
-    echo ""
-    echo -e "${GREEN}✓ Done.${NC}"
-    echo "If a space references tables outside these schema(s), you may still see table-access errors until you grant access there too."
+    if [ "${#SCHEMAS[@]}" -eq 0 ]; then
+      echo -e "${YELLOW}No schemas provided. Skipping UC grants.${NC}"
+    else
+      echo ""
+      echo -e "${BOLD}Applying UC grants (least privilege)${NC}"
+      echo "This will grant:"
+      echo "  - USE_CATALOG on each catalog"
+      echo "  - USE_SCHEMA + SELECT on each schema (inherits to all tables)"
+      echo ""
+
+      for full in "${SCHEMAS[@]}"; do
+        CATALOG="${full%%.*}"
+        SCHEMA="${full#*.}"
+
+        echo -e "${CYAN}→ ${CATALOG}.${SCHEMA}${NC}"
+
+        if ! apply_catalog_grant "$CATALOG"; then
+          echo -e "${YELLOW}  ! Could not grant USE_CATALOG on ${CATALOG}. Continuing...${NC}"
+        fi
+
+        if ! apply_schema_grant "${CATALOG}.${SCHEMA}"; then
+          echo -e "${YELLOW}  ! Could not grant USE_SCHEMA/SELECT on ${CATALOG}.${SCHEMA}. Continuing...${NC}"
+        fi
+      done
+
+      echo ""
+      echo -e "${GREEN}✓ Done.${NC}"
+      echo "If a space references tables outside these schema(s), you may still see table-access errors until you grant access there too."
+    fi
   fi
 fi
