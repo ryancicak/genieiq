@@ -645,7 +645,12 @@ async function scanSpace(databricksClient, spaceId, opts = {}) {
       const isPermissionDenied = /PERMISSION_DENIED/i.test(msg);
       const needsEdit = isPermissionDenied && /Can Edit/i.test(msg);
       const tableAccessDenied = isPermissionDenied && /Failed to fetch tables for the space/i.test(msg);
-      if (!needsEdit && !tableAccessDenied) throw e;
+      const needsView = isPermissionDenied && /Can View/i.test(msg);
+
+      // If this is a permission error, try to fall back to the basic space payload.
+      // If that also fails, treat as a "skipped" scan rather than a hard failure so org-wide
+      // scans can finish with actionable skip reasons.
+      if (!needsEdit && !tableAccessDenied && !isPermissionDenied) throw e;
 
       // Some workspaces require Can Edit to read `serialized_space`, even for viewing.
       // Other workspaces reject `include_serialized_space` if the viewer lacks UC access to one
@@ -679,8 +684,28 @@ async function scanSpace(databricksClient, spaceId, opts = {}) {
               'You can still view basic details, but scoring may be incomplete until the space is shared with the GenieIQ app principal.'
           };
 
-      space = await databricksClient.getGenieSpace(spaceId);
-      space._genieiqAccessWarning = accessWarning;
+      try {
+        space = await databricksClient.getGenieSpace(spaceId);
+        space._genieiqAccessWarning = accessWarning;
+      } catch (e2) {
+        const msg2 = String(e2?.message || e2 || '');
+        const isPerm2 = /PERMISSION_DENIED/i.test(msg2) || /Databricks API error:\s*403/i.test(msg2);
+        if (isPerm2 || needsView) {
+          return {
+            id: spaceId,
+            name: 'Unknown',
+            owner: null,
+            skipped: true,
+            skipReason: needsView ? 'needs_can_view' : 'no_space_access',
+            skipMessage: (msg2 || msg || '').slice(0, 200),
+            totalScore: 0,
+            maturityLevel: 'unknown',
+            status: 'skipped',
+            scannedAt: new Date().toISOString()
+          };
+        }
+        throw e2;
+      }
     }
     // Genie “Data & descriptions” for tables may be stored inside serialized_space itself in some workspaces.
     try {

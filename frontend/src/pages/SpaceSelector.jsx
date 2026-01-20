@@ -24,17 +24,25 @@ function SpaceSelector({ user, health }) {
   const [allTokens, setAllTokens] = useState([null]); // cursor stack for 'all' mode
   const [allIndex, setAllIndex] = useState(0);
   const [allNextToken, setAllNextToken] = useState(null);
+  const [includeUnscored, setIncludeUnscored] = useState(false);
+  const [scoredTokens, setScoredTokens] = useState([null]);
+  const [scoredIndex, setScoredIndex] = useState(0);
+  const [scoredNextToken, setScoredNextToken] = useState(null);
 
   async function loadSpaces() {
     setLoading(true);
     try {
-      if (mode === 'all') {
-        const pageToken = allTokens[allIndex] || null;
+      if (mode === 'all' || (mode === 'scored' && includeUnscored)) {
+        const useScored = mode === 'scored';
+        const pageToken = useScored ? (scoredTokens[scoredIndex] || null) : (allTokens[allIndex] || null);
         const data = starredOnly
           ? await getAllSpacesPageStarred({ pageToken, pageSize: 50 })
-          : (newOnly ? await getAllSpacesPageNew({ pageToken, pageSize: 50, days: newDays }) : await getAllSpacesPage({ pageToken, pageSize: 50 }));
+          : (newOnly && !useScored
+            ? await getAllSpacesPageNew({ pageToken, pageSize: 50, days: newDays })
+            : await getAllSpacesPage({ pageToken, pageSize: 50 }));
         setSpaces(data.spaces || []);
-        setAllNextToken(data.nextPageToken || null);
+        if (useScored) setScoredNextToken(data.nextPageToken || null);
+        else setAllNextToken(data.nextPageToken || null);
         setTotal(0);
       } else {
         const data = starredOnly
@@ -105,13 +113,20 @@ function SpaceSelector({ user, health }) {
 
   // Scored mode: server-side search/sort/pagination (debounced)
   useEffect(() => {
-    if (mode !== 'scored') return;
+    if (mode !== 'scored' || includeUnscored) return;
     const t = setTimeout(() => {
       loadSpaces();
     }, 150);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, page, sort, query, starredOnly]);
+  }, [mode, page, sort, query, starredOnly, includeUnscored]);
+
+  // Scored mode with unscored: cursor paging like "all"
+  useEffect(() => {
+    if (mode !== 'scored' || !includeUnscored) return;
+    loadSpaces();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, includeUnscored, scoredIndex, starredOnly]);
 
   // All-spaces mode: only refetch when paging (not when typing search/sort)
   useEffect(() => {
@@ -125,14 +140,20 @@ function SpaceSelector({ user, health }) {
     setError(null);
     setSpaces([]);
     if (mode === 'scored') {
-      setPage(1);
+      if (includeUnscored) {
+        setScoredTokens([null]);
+        setScoredIndex(0);
+        setScoredNextToken(null);
+      } else {
+        setPage(1);
+      }
     } else {
       setAllTokens([null]);
       setAllIndex(0);
       setAllNextToken(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [mode, includeUnscored]);
 
   // If Lakebase is missing/unhealthy, default to "All spaces" so the app isn't a blank screen.
   useEffect(() => {
@@ -174,8 +195,10 @@ function SpaceSelector({ user, health }) {
   }, [mode, starredOnly, newDays]);
 
   // In "All spaces" mode, search/sort apply to the currently loaded page (fast + predictable).
+  const isCursorMode = mode === 'all' || (mode === 'scored' && includeUnscored);
+
   const displayedSpaces = useMemo(() => {
-    if (mode !== 'all') return spaces;
+    if (!isCursorMode) return spaces;
     const q = query.trim().toLowerCase();
     let result = Array.isArray(spaces) ? spaces : [];
     // In "All spaces" mode, the backend applies starred_only if requested, but keep a guard
@@ -196,7 +219,7 @@ function SpaceSelector({ user, health }) {
       return (Number(b?.totalScore ?? -1)) - (Number(a?.totalScore ?? -1));
     });
     return sorted;
-  }, [mode, spaces, query, sort]);
+  }, [isCursorMode, spaces, query, sort, starredOnly]);
 
   return (
     <div className="container space-selector">
@@ -207,6 +230,25 @@ function SpaceSelector({ user, health }) {
             ? 'Fast view from history (Lakebase). Run scans to populate scores.'
             : 'All Genie spaces (paged). Search/sort applies to the current page.'}
         </p>
+
+        {mode === 'scored' && (
+          <div className="alert" role="status" aria-live="polite" style={{ marginTop: 12 }}>
+            <div>
+              <div className="alert-title">Scoring permissions required</div>
+              <div className="alert-body">
+                To fully score a space, grant the GenieIQ app service principal:
+                <br />
+                - Can Edit on the Genie space
+                <br />
+                - UC READ on the space’s tables
+                <br />
+                Service principal client id: <strong>{health?.servicePrincipalClientId || '(unknown)'}</strong>
+                <br />
+                If a space shows a dash for score, it likely needs these permissions.
+              </div>
+            </div>
+          </div>
+        )}
 
         {health?.database?.status === 'unhealthy' && (
           <div className="alert alert-error" role="status" aria-live="polite" style={{ marginTop: 12 }}>
@@ -270,6 +312,18 @@ function SpaceSelector({ user, health }) {
             />
             <span>Starred by me</span>
           </label>
+
+          {mode === 'scored' && (
+            <label className="mine-toggle" title="Include spaces without scores">
+              <input
+                type="checkbox"
+                checked={includeUnscored}
+                onChange={(e) => setIncludeUnscored(e.target.checked)}
+                disabled={loading}
+              />
+              <span>Include unscored</span>
+            </label>
+          )}
 
           {mode === 'all' && (
             <label className="mine-toggle" title="Show only newly discovered spaces (based on first seen time)">
@@ -348,6 +402,12 @@ function SpaceSelector({ user, health }) {
                   Scan job: <strong>{scanJob.status}</strong>
                   {typeof scanJob.total === 'number' ? ` · ${scanJob.completed}/${scanJob.total}` : ''}
                   {scanJob.errors ? ` · errors: ${scanJob.errors}` : ''}
+                  {scanJob.skipped ? ` · skipped: ${scanJob.skipped}` : ''}
+                  {scanJob.skippedByReason && Object.keys(scanJob.skippedByReason).length ? (() => {
+                    const entries = Object.entries(scanJob.skippedByReason || {}).sort((a, b) => (b?.[1] || 0) - (a?.[1] || 0));
+                    const [reason, count] = entries[0] || [];
+                    return reason ? ` · top skip: ${reason}${typeof count === 'number' ? `(${count})` : ''}` : '';
+                  })() : ''}
                   {scanJob.lastScannedSpace?.name ? ` · last: ${scanJob.lastScannedSpace.name}` : ''}
                 </>
               )
@@ -418,7 +478,7 @@ function SpaceSelector({ user, health }) {
                 <div className="skeleton skeleton-text sm" style={{ width: '55%' }} />
               </div>
             ))
-          : (mode === 'all' ? displayedSpaces : spaces).map((space, index) => (
+          : (isCursorMode ? displayedSpaces : spaces).map((space, index) => (
               <SpaceCard
                 key={space.id}
                 space={space}
@@ -429,7 +489,7 @@ function SpaceSelector({ user, health }) {
             ))}
       </div>
 
-      {!loading && mode === 'scored' && total > pageSize && (
+      {!loading && mode === 'scored' && !includeUnscored && total > pageSize && (
         <div className="space-pagination" role="navigation" aria-label="Spaces pagination">
           <div className="space-pagination-meta">
             Page <span className="space-pagination-strong">{safePage}</span> of <span className="space-pagination-strong">{totalPages}</span>
@@ -449,6 +509,45 @@ function SpaceSelector({ user, health }) {
               className="btn btn-secondary"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={safePage >= totalPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!loading && mode === 'scored' && includeUnscored && (
+        <div className="space-pagination" role="navigation" aria-label="Scored spaces pagination">
+          <div className="space-pagination-meta">
+            Page <span className="space-pagination-strong">{scoredIndex + 1}</span>
+            {query.trim() ? (
+              <>
+                {' '}· Showing <span className="space-pagination-strong">{displayedSpaces.length}</span> matches on this page
+              </>
+            ) : null}
+          </div>
+          <div className="space-pagination-controls">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setScoredIndex((i) => Math.max(0, i - 1))}
+              disabled={scoredIndex <= 0 || loading}
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                if (!scoredNextToken) return;
+                setScoredTokens((toks) => {
+                  const next = toks.slice(0, scoredIndex + 1);
+                  next.push(scoredNextToken);
+                  return next;
+                });
+                setScoredIndex((i) => i + 1);
+              }}
+              disabled={!scoredNextToken || loading}
             >
               Next
             </button>

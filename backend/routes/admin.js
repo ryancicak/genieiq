@@ -21,8 +21,51 @@ function sleep(ms) {
 
 function publicJobState(job) {
   if (!job) return null;
-  const { id, status, startedAt, finishedAt, total, completed, errors, lastError, lastScannedSpace } = job;
-  return { id, status, startedAt, finishedAt, total, completed, errors, lastError, lastScannedSpace };
+  const {
+    id,
+    status,
+    startedAt,
+    finishedAt,
+    total,
+    completed,
+    errors,
+    skipped,
+    lastError,
+    lastScannedSpace,
+    lastSkippedSpace,
+    skippedByReason,
+    errorsByType
+  } = job;
+  return {
+    id,
+    status,
+    startedAt,
+    finishedAt,
+    total,
+    completed,
+    errors,
+    skipped,
+    lastError,
+    lastScannedSpace,
+    lastSkippedSpace,
+    skippedByReason,
+    errorsByType
+  };
+}
+
+function classifyScanFailure(err) {
+  const msg = String(err?.message || err || '');
+  const is403 = /Databricks API error:\s*403/i.test(msg);
+  const isPerm = /PERMISSION_DENIED/i.test(msg) || is403;
+  if (isPerm) {
+    if (/Can Edit/i.test(msg)) return { kind: 'skipped', type: 'needs_can_edit', message: msg };
+    if (/Can View/i.test(msg)) return { kind: 'skipped', type: 'needs_can_view', message: msg };
+    if (/Failed to fetch tables for the space/i.test(msg)) return { kind: 'skipped', type: 'needs_uc_table_access', message: msg };
+    return { kind: 'skipped', type: 'no_space_access', message: msg };
+  }
+  if (/Databricks API error:\s*404/i.test(msg)) return { kind: 'skipped', type: 'not_found', message: msg };
+  if (/rate limit|Too Many Requests|Databricks API error:\s*429/i.test(msg)) return { kind: 'error', type: 'rate_limited', message: msg };
+  return { kind: 'error', type: 'unknown', message: msg };
 }
 
 async function runScanAllJob({ job, databricksClient, options }) {
@@ -30,8 +73,12 @@ async function runScanAllJob({ job, databricksClient, options }) {
   job.startedAt = new Date().toISOString();
   job.completed = 0;
   job.errors = 0;
+  job.skipped = 0;
   job.lastError = null;
   job.lastScannedSpace = null;
+  job.lastSkippedSpace = null;
+  job.skippedByReason = {};
+  job.errorsByType = {};
 
   const concurrency = Math.max(1, Math.min(10, Number(options.concurrency || 2)));
   const delayMs = Math.max(0, Math.min(5_000, Number(options.delayMs || 250)));
@@ -63,6 +110,13 @@ async function runScanAllJob({ job, databricksClient, options }) {
 
       try {
         const result = await scanSpace(databricksClient, spaceId, { forceRefreshUc: false });
+        if (result?.skipped) {
+          job.skipped += 1;
+          const reason = String(result.skipReason || 'skipped');
+          job.skippedByReason[reason] = (job.skippedByReason[reason] || 0) + 1;
+          job.lastSkippedSpace = { id: result.id, name: result.name, reason };
+          continue;
+        }
         result.scannedBy = job.requestedBy || 'admin';
         result.scanDuration = null;
         job.lastScannedSpace = { id: result.id, name: result.name, score: result.totalScore };
@@ -75,8 +129,16 @@ async function runScanAllJob({ job, databricksClient, options }) {
           // Non-fatal: history persistence optional
         }
       } catch (e) {
-        job.errors += 1;
-        job.lastError = String(e?.message || e).slice(0, 200);
+        const cls = classifyScanFailure(e);
+        if (cls.kind === 'skipped') {
+          job.skipped += 1;
+          job.skippedByReason[cls.type] = (job.skippedByReason[cls.type] || 0) + 1;
+          job.lastSkippedSpace = { id: spaceId, name: null, reason: cls.type };
+        } else {
+          job.errors += 1;
+          job.errorsByType[cls.type] = (job.errorsByType[cls.type] || 0) + 1;
+          job.lastError = String(cls.message || e?.message || e).slice(0, 200);
+        }
       } finally {
         job.completed += 1;
       }

@@ -108,7 +108,14 @@ function AdminDashboard() {
           Scan job: <strong>{scanJob.status}</strong>
           {typeof scanJob.total === 'number' ? ` · ${scanJob.completed}/${scanJob.total}` : ''}
           {scanJob.errors ? ` · errors: ${scanJob.errors}` : ''}
+          {scanJob.skipped ? ` · skipped: ${scanJob.skipped}` : ''}
+          {scanJob.skippedByReason && Object.keys(scanJob.skippedByReason).length ? (() => {
+            const entries = Object.entries(scanJob.skippedByReason || {}).sort((a, b) => (b?.[1] || 0) - (a?.[1] || 0));
+            const [reason, count] = entries[0] || [];
+            return reason ? ` · top skip: ${reason}${typeof count === 'number' ? `(${count})` : ''}` : '';
+          })() : ''}
           {scanJob.lastScannedSpace?.name ? ` · last: ${scanJob.lastScannedSpace.name}` : ''}
+          {scanJob.lastSkippedSpace?.reason ? ` · last skipped: ${scanJob.lastSkippedSpace.reason}` : ''}
           {scanJob.lastError ? ` · last error: ${scanJob.lastError}` : ''}
         </div>
       )}

@@ -5,6 +5,7 @@ import './SpaceCard.css';
 
 function SpaceCard({ space, index = 0, onToggleStar, newThresholdDays = 7 }) {
   const { id, name, totalScore, maturityLevel, scannedAt, starred, firstSeenAt } = space;
+  const hasScore = totalScore !== null && totalScore !== undefined && !Number.isNaN(Number(totalScore));
 
   const isNew = (() => {
     if (!firstSeenAt) return false;
@@ -55,10 +56,18 @@ function SpaceCard({ space, index = 0, onToggleStar, newThresholdDays = 7 }) {
           {isNew && <span className="space-card-new">New</span>}
         </h3>
         <MaturityBadge level={maturityLevel} />
+        {!hasScore && (
+          <span
+            className="space-card-access"
+            title="Needs CAN_EDIT on the space and UC READ on its tables for GenieIQ to score."
+          >
+            Needs access
+          </span>
+        )}
       </div>
       
       <p className="space-card-meta">
-        Last scanned {formatTime(scannedAt)}
+        {hasScore ? `Last scanned ${formatTime(scannedAt)}` : 'Not scored yet'}
       </p>
     </Link>
   );

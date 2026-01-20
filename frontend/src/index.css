@@ -6,6 +6,7 @@
   --bg-raised: #12121a;
   --bg-subtle: #1a1a24;
   --bg-hover: #222230;
+  --bg-overlay: rgba(18, 18, 26, 0.55);
 
   /* Text */
   --text-primary: #f4f4f5;
@@ -20,6 +21,7 @@
   --accent: #22d3ee;
   --accent-light: #67e8f9;
   --accent-dim: rgba(34, 211, 238, 0.15);
+  --focus-ring: rgba(34, 211, 238, 0.35);
 
   /* Status */
   --success: #22c55e;
@@ -46,6 +48,9 @@
   /* Fonts */
   --font-display: 'Space Grotesk', sans-serif;
   --font-body: 'DM Sans', sans-serif;
+
+  /* Layout */
+  --header-height: 64px;
 }
 
 * {
@@ -71,6 +76,17 @@ body {
   min-height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+/* A11y: consistent, modern focus ring */
+:where(a, button, input, select, textarea):focus {
+  outline: none;
+}
+
+:where(a, button, input, select, textarea):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-radius: max(var(--radius-sm), 6px);
 }
 
 /* Typography */
@@ -109,12 +125,16 @@ button {
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
   font-weight: 500;
-  transition: all 0.2s ease;
+  line-height: 1;
+  transition: transform 0.08s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn-primary {
   background-color: var(--accent);
   color: var(--bg-deep);
+  border: 1px solid rgba(0, 0, 0, 0.0);
 }
 
 .btn-primary:hover {
@@ -132,11 +152,90 @@ button {
   border-color: var(--border-hover);
 }
 
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Form controls */
+.control {
+  height: 40px;
+  background: rgba(10, 10, 15, 0.35);
+  border: 1px solid rgba(39, 39, 42, 0.95);
+  color: var(--text-primary);
+  border-radius: 10px;
+  padding: 0 var(--space-md);
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.control::placeholder {
+  color: rgba(161, 161, 170, 0.75);
+}
+
+.control:focus {
+  border-color: rgba(34, 211, 238, 0.8);
+  background: rgba(26, 26, 36, 0.65);
+}
+
+.control:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Alerts */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: rgba(18, 18, 26, 0.55);
+}
+
+.alert-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.alert-body {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.alert-error {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.alert-error .alert-title {
+  color: rgba(255, 153, 153, 1);
+}
+
+.alert-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex: 0 0 auto;
+}
+
 /* Layout */
 .container {
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 var(--space-lg);
+}
+
+/* Make page layouts feel consistent, not “randomly padded” */
+.main {
+  flex: 1;
+  padding-top: calc(var(--header-height) + var(--space-lg));
 }
 
 /* Cards */
@@ -156,6 +255,40 @@ button {
   transform: translateY(-2px);
   border-color: var(--accent);
 }
+
+/* Skeletons */
+@keyframes shimmer {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgba(63, 63, 70, 0.22);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.10) 50%,
+    transparent 100%
+  );
+  transform: translateX(-120%);
+  animation: shimmer 1.25s ease-in-out infinite;
+}
+
+.skeleton-text { height: 14px; }
+.skeleton-text.sm { height: 10px; }
+.skeleton-text.lg { height: 18px; }
+.skeleton-pill { height: 22px; border-radius: var(--radius-full); }
+.skeleton-score-md { width: 72px; height: 56px; border-radius: 14px; }
+.skeleton-score-lg { width: 200px; height: 120px; border-radius: 18px; }
 
 /* Animations */
 @keyframes fadeIn {
@@ -183,3 +316,18 @@ button {
 .stagger-4 { animation-delay: 0.2s; }
 .stagger-5 { animation-delay: 0.25s; }
 
+@media (max-width: 720px) {
+  h1 { font-size: 2.05rem; }
+  h2 { font-size: 1.5rem; }
+  .container { padding: 0 var(--space-md); }
+}@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-count-up,
+  .skeleton::after {
+    animation: none !important;
+  }
+  .btn,
+  .card {
+    transition: none !important;
+  }
+}

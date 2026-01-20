@@ -203,7 +203,13 @@ if [[ "$DO_GRANTS" =~ ^[Yy]$ ]]; then
   echo "  profile: ${PROFILE}"
   echo "  app:     ${APP_NAME}"
 
-  APP_SP_ID="$("$DBX_BIN" --profile "$PROFILE" apps get "$APP_NAME" --output json 2>/dev/null | python3 -c 'import sys,json\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o={}\nprint(o.get(\"service_principal_client_id\") or \"\")' || true)"
+  APP_SP_ID="$("$DBX_BIN" --profile "$PROFILE" apps get "$APP_NAME" --output json 2>/dev/null | python3 -c 'import sys, json
+try:
+  o = json.load(sys.stdin)
+except Exception:
+  o = {}
+print(o.get("service_principal_client_id") or "")
+' || true)"
   if [ -z "${APP_SP_ID:-}" ]; then
     echo -e "${RED}✗ Could not detect the app service principal client id.${NC}"
     echo "Make sure the app exists in this workspace and your CLI profile is authenticated."
@@ -250,7 +256,27 @@ if [[ "$DO_GRANTS" =~ ^[Yy]$ ]]; then
       echo -e "${BOLD}Discovering catalogs and schemas...${NC}"
       # Best-effort: list catalogs + schemas. Requires metastore admin to see everything.
       CATALOGS_JSON="$("$DBX_BIN" --profile "$PROFILE" catalogs list --max-results 0 --include-browse --include-unbound --output json 2>/dev/null || echo "[]")"
-      CATALOGS="$(python3 -c 'import sys,json\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o=[]\nif isinstance(o, dict):\n  o=o.get(\"catalogs\") or []\nif not isinstance(o, list):\n  o=[]\nfor c in o:\n  n=(c.get(\"name\") or c.get(\"full_name\") or \"\").strip()\n  t=(c.get(\"catalog_type\") or \"\").upper()\n  if not n:\n    continue\n  # Skip system catalogs that are usually not grant-manageable.\n  if t in (\"SYSTEM_CATALOG\",):\n    continue\n  if n.lower() in (\"system\",):\n    continue\n  print(n)\n' <<<"$CATALOGS_JSON")"
+      CATALOGS="$(python3 -c 'import sys, json
+try:
+  o = json.load(sys.stdin)
+except Exception:
+  o = []
+if isinstance(o, dict):
+  o = o.get("catalogs") or []
+if not isinstance(o, list):
+  o = []
+for c in o:
+  n = (c.get("name") or c.get("full_name") or "").strip()
+  t = (c.get("catalog_type") or "").upper()
+  if not n:
+    continue
+  # Skip system catalogs that are usually not grant-manageable.
+  if t in ("SYSTEM_CATALOG",):
+    continue
+  if n.lower() in ("system",):
+    continue
+  print(n)
+' <<<"$CATALOGS_JSON")"
 
       if [ -z "${CATALOGS:-}" ]; then
         echo -e "${YELLOW}  ! No catalogs found or insufficient privileges to list catalogs.${NC}"
@@ -267,7 +293,25 @@ if [[ "$DO_GRANTS" =~ ^[Yy]$ ]]; then
           fi
 
           SCHEMAS_JSON="$("$DBX_BIN" --profile "$PROFILE" schemas list "$catalog" --max-results 0 --include-browse --output json 2>/dev/null || echo "[]")"
-          SCHEMAS="$(python3 -c 'import sys,json\ncat=sys.argv[1]\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o=[]\nif isinstance(o, dict):\n  o=o.get(\"schemas\") or []\nif not isinstance(o, list):\n  o=[]\nfor s in o:\n  n=(s.get(\"name\") or \"\").strip()\n  if not n:\n    continue\n  # Skip system-like schemas.\n  if n.lower() in (\"information_schema\",):\n    continue\n  print(f\"{cat}.{n}\")\n' \"$catalog\" <<<"$SCHEMAS_JSON")"
+          SCHEMAS="$(python3 -c 'import sys, json
+cat = sys.argv[1]
+try:
+  o = json.load(sys.stdin)
+except Exception:
+  o = []
+if isinstance(o, dict):
+  o = o.get("schemas") or []
+if not isinstance(o, list):
+  o = []
+for s in o:
+  n = (s.get("name") or "").strip()
+  if not n:
+    continue
+  # Skip system-like schemas.
+  if n.lower() in ("information_schema",):
+    continue
+  print(f"{cat}.{n}")
+' "$catalog" <<<"$SCHEMAS_JSON")"
 
           if [ -z "${SCHEMAS:-}" ]; then
             echo -e "${YELLOW}  ! No schemas found in ${catalog} (or insufficient privilege to list).${NC}"
@@ -297,6 +341,7 @@ if [[ "$DO_GRANTS" =~ ^[Yy]$ ]]; then
     echo "Press Enter on a blank line to finish."
 
     SCHEMAS=()
+    fail_log="$(mktemp -t genieiq-perm-fail.XXXXXX)"
     while true; do
       read -r -p "schema> " s
       s="$(echo "${s:-}" | tr -d '\"' | xargs || true)"
@@ -369,7 +414,13 @@ if [[ "$DO_GENIE_PERMS" =~ ^[Yy]$ ]]; then
   PROFILE="${DATABRICKS_CONFIG_PROFILE:-genieiq}"
   APP_NAME="${GENIEIQ_APP_NAME:-genieiq}"
 
-  APP_SP_ID="$("$DBX_BIN" --profile "$PROFILE" apps get "$APP_NAME" --output json 2>/dev/null | python3 -c 'import sys,json\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o={}\nprint(o.get(\"service_principal_client_id\") or \"\")' || true)"
+  APP_SP_ID="$("$DBX_BIN" --profile "$PROFILE" apps get "$APP_NAME" --output json 2>/dev/null | python3 -c 'import sys, json
+try:
+  o = json.load(sys.stdin)
+except Exception:
+  o = {}
+print(o.get("service_principal_client_id") or "")
+' || true)"
   if [ -z "${APP_SP_ID:-}" ]; then
     echo -e "${RED}✗ Could not detect the app service principal client id.${NC}"
     echo "Make sure the app exists in this workspace and your CLI profile is authenticated."
@@ -415,6 +466,13 @@ if [[ "$DO_GENIE_PERMS" =~ ^[Yy]$ ]]; then
     page_token=""
     updated=0
     failed=0
+    fail_log=""
+    if fail_log="$(mktemp -t genieiq-perm-fail.XXXXXX 2>/dev/null)"; then
+      : > "$fail_log"
+    else
+      fail_log="/tmp/genieiq-perm-fail.$$"
+      : > "$fail_log"
+    fi
 
     while true; do
       qs="page_size=200"
@@ -424,9 +482,25 @@ if [[ "$DO_GENIE_PERMS" =~ ^[Yy]$ ]]; then
 
       RESP="$("$DBX_BIN" --profile "$PROFILE" api get "/api/2.0/genie/spaces?${qs}" --output json 2>/dev/null || echo '{}')"
 
-      IDS="$(python3 -c 'import sys,json\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o={}\nspaces=o.get(\"spaces\") or o.get(\"rooms\") or []\nfor s in spaces or []:\n  sid=s.get(\"id\") or s.get(\"space_id\") or s.get(\"room_id\")\n  if sid:\n    print(sid)\n' <<<"$RESP")"
+      IDS="$(python3 -c 'import sys, json
+try:
+  o = json.load(sys.stdin)
+except Exception:
+  o = {}
+spaces = o.get("spaces") or o.get("rooms") or []
+for s in spaces or []:
+  sid = s.get("id") or s.get("space_id") or s.get("room_id")
+  if sid:
+    print(sid)
+' <<<"$RESP")"
 
-      NEXT="$(python3 -c 'import sys,json\ntry:\n  o=json.load(sys.stdin)\nexcept Exception:\n  o={}\nprint(o.get(\"next_page_token\") or o.get(\"nextPageToken\") or \"\")\n' <<<"$RESP")"
+      NEXT="$(python3 -c 'import sys, json
+try:
+  o = json.load(sys.stdin)
+except Exception:
+  o = {}
+print(o.get("next_page_token") or o.get("nextPageToken") or "")
+' <<<"$RESP")"
 
       if [ -z "${IDS:-}" ]; then
         break
@@ -436,12 +510,23 @@ if [[ "$DO_GENIE_PERMS" =~ ^[Yy]$ ]]; then
         [ -z "${sid:-}" ] && continue
 
         # Apply permission (idempotent).
-        if "$DBX_BIN" --profile "$PROFILE" permissions update genie "$sid" \
+        if update_out="$("$DBX_BIN" --profile "$PROFILE" permissions update genie "$sid" \
           --json "{\"access_control_list\":[{\"service_principal_name\":\"${APP_SP_ID}\",\"permission_level\":\"${GENIE_LEVEL}\"}]}" \
-          --output json >/dev/null 2>&1; then
+          --output json 2>&1)"; then
           updated=$((updated + 1))
         else
           failed=$((failed + 1))
+          reason="unknown"
+          if echo "$update_out" | grep -qi "PERMISSION_DENIED\|Permission denied\|403"; then
+            reason="no_permission_to_manage_space"
+          elif echo "$update_out" | grep -qi "NOT_FOUND\|not found\|404"; then
+            reason="space_not_found"
+          elif echo "$update_out" | grep -qi "rate limit\|429"; then
+            reason="rate_limited"
+          fi
+          if [ -n "${fail_log:-}" ]; then
+            echo "${reason}|${sid}|${update_out}" >> "$fail_log"
+          fi
         fi
 
         if [ "$((updated + failed))" -eq 1 ] || [ $(( (updated + failed) % 50 )) -eq 0 ]; then
@@ -464,5 +549,20 @@ if [[ "$DO_GENIE_PERMS" =~ ^[Yy]$ ]]; then
     echo -e "${GREEN}✓ Genie permissions update complete.${NC}"
     echo "Updated: ${updated}"
     echo "Failed:  ${failed}"
+    if [ "$failed" -gt 0 ] && [ -n "${fail_log:-}" ] && [ -f "$fail_log" ]; then
+      echo ""
+      echo -e "${YELLOW}Top failure reasons:${NC}"
+      awk -F'|' '{c[$1]++} END{for (r in c) printf("%s\t%s\n", c[r], r)}' "$fail_log" \
+        | sort -nr | head -5 | awk '{print "  - " $2 " (" $1 ")"}'
+      echo ""
+      echo -e "${YELLOW}Sample errors:${NC}"
+      awk -F'|' 'NR<=3 {print "  - " $1 ": " $3}' "$fail_log"
+      echo ""
+      echo "Tip: If most failures are permission-related, run this step as a workspace admin or a space owner."
+      echo "You can also re-run with a smaller limit to validate permissions before scanning everything."
+    fi
+    if [ -n "${fail_log:-}" ]; then
+      rm -f "$fail_log" >/dev/null 2>&1 || true
+    fi
   fi
 fi
