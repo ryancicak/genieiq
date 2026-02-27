@@ -718,7 +718,13 @@ async function scanSpace(databricksClient, spaceId, opts = {}) {
     }
     await tryEnrichSpaceFromExport(databricksClient, space);
     await tryEnrichSpaceFromGenieGet(databricksClient, space);
-    
+
+    // If the serialized_space call failed but the fallback enrichment recovered
+    // tables successfully, clear the access warning -- scoring is complete.
+    if (space._genieiqAccessWarning && Array.isArray(space.tables) && space.tables.length > 0) {
+      delete space._genieiqAccessWarning;
+    }
+
     let warehouse = null;
     if (space.warehouse_id) {
       try {

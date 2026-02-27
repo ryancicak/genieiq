@@ -145,6 +145,22 @@ class DatabricksClient {
       // Special-case: Genie "get" (used by the UI for richer space settings) is often permissioned
       // on the user and may not be accessible to the app service principal.
       if (isGenieGet && this.userToken) return this.userToken;
+      // For serialized-space reads (include_serialized_space=true), prefer the SP token
+      // because the Genie API validates UC table access for the calling identity.
+      // The user's proxy token often lacks the required UC grants, causing
+      // "Failed to fetch tables for the space" PERMISSION_DENIED errors.
+      const isSerializedRead =
+        isGenieSpaceRead &&
+        typeof endpoint === 'string' &&
+        endpoint.includes('include_serialized_space=true');
+      if (isSerializedRead) {
+        const envToken = this.getEnvTokenIfAllowed();
+        if (envToken) return envToken;
+        const spToken = await getServicePrincipalToken('all-apis');
+        if (spToken) return spToken;
+        if (this.userToken) return this.userToken;
+        return null;
+      }
       // Prefer the user token for read calls on a specific space (captures user-visible settings like Sample questions),
       // with a retry fallback inside `fetch` if the token is invalid-scoped.
       if (isGenieSpaceRead && this.userToken) return this.userToken;
@@ -207,15 +223,19 @@ class DatabricksClient {
       if (!response.ok) {
         const errorText = await response.text();
 
-        // Retry: Genie endpoints sometimes fail with user tokens due to missing scopes.
-        // If we used the user token and got a scope-related 403, retry once with the service principal token.
+        // Retry: Genie endpoints sometimes fail with user tokens due to missing scopes
+        // or UC permission errors (e.g. "Failed to fetch tables for the space").
+        // If we used the user token and got a 403, retry once with the service principal token.
         const isGenie = typeof endpoint === 'string' && endpoint.startsWith('/genie/');
         const isScope403 =
           response.status === 403 &&
           /invalid scope|insufficient_scope|scope/i.test(errorText || '');
+        const isPermDenied403 =
+          response.status === 403 &&
+          /PERMISSION_DENIED|Failed to fetch tables/i.test(errorText || '');
         const usedUserToken = Boolean(this.userToken) && token === this.userToken;
 
-        if (isGenie && usedUserToken && isScope403) {
+        if (isGenie && usedUserToken && (isScope403 || isPermDenied403)) {
           try {
             const spToken = await getServicePrincipalToken('all-apis');
             if (spToken) {

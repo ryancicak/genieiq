@@ -231,7 +231,7 @@ function SpaceSelector({ user, health }) {
             : 'All Genie spaces (paged). Search/sort applies to the current page.'}
         </p>
 
-        {mode === 'scored' && (
+        {mode === 'scored' && Array.isArray(spaces) && spaces.some(s => s.totalScore == null) && (
           <div className="alert" role="status" aria-live="polite" style={{ marginTop: 12 }}>
             <div>
               <div className="alert-title">Scoring permissions required</div>
